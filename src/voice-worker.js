@@ -3,13 +3,14 @@
 import { pipeline, env } from '@huggingface/transformers';
 import { KokoroTTS } from 'kokoro-js';
 import * as ort from 'onnxruntime-web';
+import { WakeDetector, CHUNK } from './wake.js';
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 env.backends.onnx.wasm.wasmPaths = new URL('./ort/', self.location.href).href;
 env.backends.onnx.wasm.numThreads = Math.max(1, Math.min(4, Math.floor(((navigator.hardwareConcurrency || 4) - 2) / 2)));
 
-let asr = null, asrModel = null, tts = null;
+let asr = null, asrModel = null, tts = null, wake = null;
 const post = (m, transfer) => self.postMessage(m, transfer || []);
 
 async function hasGPU() { try { return !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch { return false; } }
@@ -54,6 +55,16 @@ self.onmessage = async ({ data: m }) => {
         result = { samples: a.audio, rate: a.sampling_rate }; transfer = [a.audio.buffer];
         break;
       }
+      case 'wakeInit': {
+        if (!wake) {
+          ort.env.wasm.numThreads = 1;                        // tiny models: one thread is plenty
+          const get = f => fetch(new URL('./wake/' + f, self.location.href).href).then(r => { if (!r.ok) throw new Error('missing ' + f); return r.arrayBuffer(); }).then(b => new Uint8Array(b));
+          wake = await WakeDetector.create(ort, { mel: await get('melspectrogram.onnx'), emb: await get('embedding_model.onnx'), ww: await get('hey_jarvis_v0.1.onnx') });
+        }
+        result = { chunk: CHUNK }; break;
+      }
+      case 'wakeFeed': result = wake ? await wake.feed(m.chunk) : 0; break;
+      case 'wakeReset': if (wake) await wake.reset(); result = true; break;
       case 'selfTest': {
         const sess = await ort.InferenceSession.create(m.bytes, { executionProviders: [m.device || 'wasm'] });
         const out = await sess.run({ x: new ort.Tensor('float32', new Float32Array([1, 2]), [2]) });

@@ -118,7 +118,7 @@ async function talk(){
   if (!text) earcon(false);
   if (text) { $('#heard').textContent = text; setTimeout(() => $('#heard').textContent = '', 3000); onHeard(text, true); }
 }
-const WAKE = /^(?:hey |ok |okay |yo )?(?:jarvis|jervis|jarvus|jarvas|travis|jarv)\b[\s,.!?]*/i;
+const WAKE = /^(?:(?:hey|hi|ok|okay|yo|a)[\s,]+)?(?:jarvis|jervis|jarvus|jarvas|jarv|service)\b[\s,.!?]*|^(?:hey|hi)[\s,.!?]*$/i;
 const YES = /^(yes|yeah|yep|do it|go ahead|proceed|confirm|run it|affirmative|sure|ok|okay|execute|please do)\b/i;
 const NO  = /^(no|nope|cancel|stop|abort|negative|don'?t|never mind|nevermind)\b/i;
 function onHeard(text, direct){
@@ -138,12 +138,45 @@ function onHeard(text, direct){
 async function setWake(on){
   S.wake = on; store.set('wake', on); J.setPrefs({ wake: on });
   $('#wakePill').classList.toggle('on', on); $('#wakeTxt').textContent = on ? 'ON' : 'OFF';
-  if (V && V.hearingReady) {
-    try { await V.setContinuous(on, t => onHeard(t, false)); }
-    catch (e) { addMsg('sys', 'Microphone problem: ' + e.message); S.wake = false; $('#wakePill').classList.remove('on'); $('#wakeTxt').textContent = 'OFF'; }
-    if (on) event('wake word armed');
-  } else if (on) addMsg('sys', 'Wake word will start once my hearing has loaded.');
+  if (!V) { setState(); return; }
+  try {
+    await V.setWakeWord(on, onWakeWord);
+    if (on) event('listening for “Hey Jarvis”');
+  } catch (e) {
+    event('wake word detector failed (' + e.message + '), using speech recognition instead');
+    if (V.hearingReady) {
+      try { await V.setContinuous(on, t => onHeard(t, false)); } catch (err) { addMsg('sys', 'Microphone problem: ' + err.message); S.wake = false; $('#wakePill').classList.remove('on'); $('#wakeTxt').textContent = 'OFF'; }
+    }
+  }
   setState();
+}
+const ACKS = ['Yes, sir?', 'Sir?', 'At your service.', 'Go ahead, sir.'];
+let wakeBusy = false;
+async function onWakeWord(score){
+  if (wakeBusy || S.listening) return;
+  wakeBusy = true;
+  event('heard “Hey Jarvis” (' + Math.round(score * 100) + '%)');
+  try {
+    if (S.thinking || speaking()) interrupt();
+    if (!V.hearingReady) { await speak(V.hearingLoading ? 'One moment, sir — my hearing is still loading.' : 'My hearing isn’t set up yet, sir. Settings will walk you through it.'); return; }
+    earcon(true);
+    S.listening = true; setState();
+    let restoreVol = null;
+    if (S.duck) { const v = await J.pc('getVolume').catch(() => null); if (v && v.ok && v.volume > 30 && !v.muted) { restoreVol = v.volume; J.pc('setVolume', { level: 25 }); } }
+    // "Hey Jarvis, pause the music" in one breath: catch what follows straight away
+    let text = (await V.listenOnce(1800, true).catch(() => '')).replace(WAKE, '').replace(/^[\s,.!?]+/, '').trim();
+    if (!text) {
+      S.listening = false; setState();
+      await speak(pick(ACKS));
+      S.listening = true; setState();
+      text = (await V.listenOnce(7000).catch(() => '')).replace(WAKE, '').trim();
+    }
+    if (restoreVol != null) J.pc('setVolume', { level: restoreVol });
+    S.listening = false; setState();
+    if (!text) { earcon(false); return; }
+    $('#heard').textContent = text; setTimeout(() => $('#heard').textContent = '', 3000);
+    handle(text);
+  } finally { wakeBusy = false; S.listening = false; setState(); }
 }
 
 /* ============================================================ memory / tasks / timers */
@@ -883,11 +916,11 @@ async function loadVoiceModels(fromSetup){
     V.hearingLoading = true; tb('#tbEar', 'LOADING', 'warn');
     if (fromSetup) { $('#voiceProg').classList.add('show'); }
     tasks.push(V.loadHearing(S.ear, fromSetup ? progressTracker('#voiceProg i', '#voiceTxt', 'Hearing') : null)
-      .then(() => { V.hearingLoading = false; tb('#tbEar', (S.ear.includes('small') ? 'WHISPER S' : 'WHISPER') + ' · ' + V.hearingDevice.toUpperCase(), 'on'); event('hearing ready (' + V.hearingDevice + ')'); if (S.wake) setWake(true); })
+      .then(() => { V.hearingLoading = false; tb('#tbEar', (S.ear.includes('small') ? 'WHISPER S' : 'WHISPER') + ' · ' + V.hearingDevice.toUpperCase(), 'on'); event('hearing ready (' + V.hearingDevice + ')'); })
       .catch(e => { V.hearingLoading = false; tb('#tbEar', 'FAILED', 'off'); event('hearing failed: ' + e.message); throw e; }));
   }
   const voiceTask = () => V.loadVoice(fromSetup ? progressTracker('#voiceProg i', '#voiceTxt', 'Voice') : null)
-    .then(() => { tb('#tbVoice', S.voice.replace(/^[ab]m_/, '').toUpperCase(), 'on'); fillVoiceSelect(); event('voice ready'); })
+    .then(() => { tb('#tbVoice', S.voice.replace(/^[ab]m_/, '').toUpperCase(), 'on'); fillVoiceSelect(); event('voice ready'); V.prepare(ACKS, voiceOpts()); })
     .catch(e => { tb('#tbVoice', 'WINDOWS', 'warn'); event('neural voice failed, using Windows voice: ' + e.message); throw e; });
   if (!V.voiceReady) { tb('#tbVoice', 'LOADING', 'warn'); }
   try {
@@ -1001,7 +1034,7 @@ function wire(){
   $('#testVoice').onclick = () => { stopVoice(); speak(`${greeting()}, sir. All systems are online and at your disposal.`); };
   $('#earSel').value = S.ear; $('#earSel').onchange = e => { S.ear = e.target.value; store.set('ear', S.ear); if (V) { V.hearingReady = false; loadVoiceModels(false); } };
   $('#sens').value = S.sens; const showS = () => $('#sensV').textContent = Math.round(S.sens * 100) + '%'; showS();
-  $('#sens').oninput = e => { S.sens = +e.target.value; store.set('sens', S.sens); if (V) V.sensitivity = S.sens; showS(); };
+  $('#sens').oninput = e => { S.sens = +e.target.value; store.set('sens', S.sens); if (V) { V.sensitivity = S.sens; V.wakeThreshold = 0.75 - 0.45 * S.sens; } showS(); };
   $('#autoSafe').checked = S.autoSafe; $('#autoSafe').onchange = e => { S.autoSafe = e.target.checked; store.set('autoSafe', S.autoSafe); };
   $('#confirm').checked = S.confirm; $('#confirm').onchange = e => { S.confirm = e.target.checked; store.set('confirm', S.confirm); };
   $('#qualSel').value = quality;
@@ -1035,6 +1068,9 @@ function attachVoice(){
   V.onVadState = st => { if (st === 'recording') $('#state').textContent = 'listening'; else setState(); };
   fillVoiceSelect();
   if (store.get('voiceDone', false)) loadVoiceModels(false);   // from cache: quick, offline
+  if (!store.get('wake15', false)) { store.set('wake15', true); S.wake = true; store.set('wake', true); }   // 1.6: "Hey Jarvis" on by default
+  V.wakeThreshold = 0.75 - 0.45 * S.sens;
+  if (S.wake) setWake(true);
   else { tb('#tbEar', 'SETUP', 'warn'); tb('#tbVoice', 'WINDOWS', 'warn'); }
 }
 window.addEventListener('jarvis-voice-ready', attachVoice);
