@@ -1,5 +1,4 @@
-- Jarvis can now control your PC: pause, play and skip music (Spotify, YouTube, any player), set or change the volume, tell you what song is playing, switch between / minimize / close windows, press keyboard shortcuts and type into apps.
-- Instant music commands, no AI wait: "pause", "next song", "volume 40", "mute", "what song is this".
-- Music is turned down automatically while you're talking to him (Settings to turn off).
-- Jarvis now keeps running in the background when you close the window. Find him in the system tray, where you can also turn on "Listen for Jarvis". Ctrl+Shift+J talks to him without popping the window up.
-- "Start with Windows" now starts him quietly in the background.
+- Jarvis can now use any open app, even behind other windows or while you're in a game: he reads its buttons, menus and text, clicks things and types into boxes for you.
+- He can look at your screen (or one window) when a task needs it. Pictures are kept in memory for a moment and never saved. Turn it off any time in Settings.
+- Game mode: when a fullscreen game is running, Jarvis frees your graphics card so your game runs smoothly. His brain reloads by itself when you ask something.
+- Music and volume commands work from inside games without switching windows.
