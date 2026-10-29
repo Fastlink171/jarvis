@@ -23,7 +23,7 @@ const MODELS = [
 /* ============================================================ state */
 const S = {
   info:{}, name:store.get('name', ''), ollama:false, models:[], model:store.get('model', ''), caps:[], modelSize:0,
-  deep:store.get('deep', false), duck:store.get('duck', true), visible:true,
+  deep:store.get('deep', false), duck:store.get('duck', true), visible:true, media:[], apps:[],
   screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
   pending:null, history:[], run:0, chatId:null,
   confirm:store.get('confirm', true), autoSafe:store.get('autoSafe', true),
@@ -333,8 +333,9 @@ const TOOLS = [
   { name:'set_timer', description:'Start a timer, or a reminder when a label is given. Jarvis will speak up when it ends.', params:{ minutes:{ type:'number' }, label:{ type:'string', description:'what to remind about (optional)' } }, required:['minutes'] },
   { name:'get_weather', description:'Current weather and 3-day forecast. Leave city empty for the user\'s saved location.', params:{ city:{ type:'string' } }, required:[] },
   { name:'system_status', description:'CPU, memory, disk, uptime and top processes of this PC.', params:{}, required:[] },
-  { name:'media_control', description:'Control music/video playing on the PC (Spotify, YouTube, any player) and the system volume. Actions: play_pause, next, previous, stop, volume_up, volume_down, mute, unmute, set_volume (with level 0-100).', params:{ action:{ type:'string', enum:['play_pause', 'next', 'previous', 'stop', 'volume_up', 'volume_down', 'mute', 'unmute', 'set_volume'] }, level:{ type:'number', description:'0-100, for set_volume' } }, required:['action'] },
-  { name:'now_playing', description:'What song is playing (Spotify) or which YouTube video is open, plus the current volume.', params:{}, required:[] },
+  { name:'media_control', description:'Control a specific media player (Spotify, a show in Chrome, YouTube, VLC…) or the system volume. Actions: play, pause, next, previous, stop, volume_up, volume_down, mute, unmute, set_volume. Set app to the player to control ("spotify", "chrome", "youtube", or "music" / "video"); leave it empty to let Jarvis choose (pause = everything playing, play = whatever was paused last, preferring music).', params:{ action:{ type:'string', enum:['play', 'pause', 'next', 'previous', 'stop', 'volume_up', 'volume_down', 'mute', 'unmute', 'set_volume'] }, app:{ type:'string', description:'which player' }, level:{ type:'number', description:'0-100, for set_volume' } }, required:['action'] },
+  { name:'now_playing', description:'Every media player that is playing or paused (app, song/show title, artist, status), plus the volume.', params:{}, required:[] },
+  { name:'list_running_apps', description:'All apps running on the PC, including background/tray apps (Discord, Steam…), with their windows and memory use.', params:{}, required:[] },
   { name:'window_control', description:'List open windows, or focus / minimize / maximize / restore / close one. Target is an app name ("spotify", "chrome", "notepad") or part of a window title.', params:{ action:{ type:'string', enum:['list', 'focus', 'minimize', 'maximize', 'restore', 'close'] }, target:{ type:'string' } }, required:['action'] },
   { name:'press_keys', description:'Press keyboard shortcuts in an app, e.g. "ctrl+s", "alt+tab", "ctrl+shift+esc", "space", "f5". Several in order: "ctrl+a, ctrl+c". Give window to switch to that app first (otherwise keys go to whatever is in front).', params:{ keys:{ type:'string' }, window:{ type:'string', description:'app or window to switch to first' }, times:{ type:'number' } }, required:['keys'] },
   { name:'read_window', description:'Read what is in any open window — its buttons, menus, links, text and boxes — even if it is behind other windows or the user is in a game. Returns numbered elements to use with click and set_text. Use this before clicking. Target is an app name ("spotify", "discord", "chrome") or part of the window title.', params:{ window:{ type:'string' } }, required:['window'] },
@@ -419,13 +420,21 @@ async function runTool(name, args){
       }
       case 'media_control': {
         const a = String(args.action || '');
-        const r = await mediaAction(a, args.level);
-        return r.ok ? JSON.stringify({ done: a, volume: r.volume, muted: r.muted }) : 'Failed: ' + r.error;
+        const r = await mediaAction(a, args.level, args.app);
+        if (!r.ok) return 'Failed: ' + r.error;
+        if (r.done === false) return r.reason + (r.sessions && r.sessions.length ? ' Players: ' + r.sessions.join(', ') : '');
+        refreshMedia();
+        return JSON.stringify({ done: a, controlled: r.apps, volume: r.volume, muted: r.muted });
       }
       case 'now_playing': {
-        const [np, v] = await Promise.all([J.pc('nowPlaying'), J.pc('getVolume')]);
+        const [np, v] = await Promise.all([J.pc('mediaSessions'), J.pc('getVolume')]);
         if (!np.ok) return 'Failed: ' + np.error;
-        return JSON.stringify({ app: np.app, playing: np.playing, title: np.title, volume: v.volume, muted: v.muted });
+        return JSON.stringify({ players: np.sessions.map(x => ({ app: x.app, status: x.status, title: x.title, artist: x.artist })), volume: v.volume, muted: v.muted });
+      }
+      case 'list_running_apps': {
+        toolLine('▦', 'Checking running apps');
+        const r = await J.pc('apps'); if (!r.ok) return 'Failed: ' + r.error;
+        return JSON.stringify(r.apps.map(a => ({ app: a.name, process: a.app, windows: a.windows, background: a.background, memoryMB: a.memoryMB })));
       }
       case 'window_control': {
         const a = String(args.action || 'list');
@@ -484,13 +493,13 @@ function systemPrompt(){
   return `You are J.A.R.V.I.S. ("Jarvis"), a personal AI assistant living on ${userName()}'s Windows PC (${S.info.computer || 'this PC'}, ${S.info.os || 'Windows'}). You run entirely on this computer.
 Current date and time: ${new Date().toLocaleString([], { weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'numeric', minute:'2-digit' })}.
 User's name: ${userName()}. Home folder: ${S.info.home || ''}. PowerShell current folder: ${S.cwd || S.info.home || ''}.
-${S.gaming ? `The user is playing ${S.gameApp} in fullscreen right now: do not bring other windows to the front unless they ask, keep replies very short.\n` : ''}${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${open.length ? 'Open tasks: ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
+${pcSnapshot()}${S.gaming ? `The user is playing ${S.gameApp} in fullscreen right now: do not bring other windows to the front unless they ask, keep replies very short.\n` : ''}${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${open.length ? 'Open tasks: ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
 PERSONALITY: calm, capable, quietly witty, British, loyal. Address the user as "sir" occasionally, not every sentence.
 
 HOW YOU WORK:
 - You have tools. Use them instead of guessing. For anything about current events, prices, people, products, sports, or facts you are not certain of: call web_search, then read_webpage on the best one or two results, then answer. Never invent facts, numbers or URLs.
 - You can see and use any open window, even ones behind others or while the user is in a game: read_window lists a window's buttons/text with numbers, then click or set_text by number. Use look_at_screen when you need to actually see (games, images, video) or read_window shows little. Pictures are never saved.
-- Music and volume: always use media_control / now_playing. They work from anywhere — never switch windows for them.
+- Music, videos and volume: always use media_control / now_playing. They work from anywhere — never switch windows for them. Pick the right player with app (e.g. "spotify" vs "chrome") using the media players listed above.
 - To act on the PC: open (apps, files, sites), media_control and now_playing (music, video, volume), window_control (switch to, minimize, close windows), press_keys and type_text (keyboard shortcuts and typing into any app — pass window so it goes to the right app), or run_powershell for anything else. Think about what the user actually wants and do it in as few steps as possible. Check results and fix mistakes.
 - When the user tells you something about themselves worth keeping, call remember.
 - Prefer safe, read-only commands. Never delete files, change security settings or do anything destructive unless the user clearly asked for it.
@@ -652,39 +661,46 @@ async function checkGame(){
 }
 
 /* ============================================================ media / PC control */
-async function mediaAction(a, level){
+async function mediaAction(a, level, app){
+  if (a === 'play_pause') a = (S.media.some(x => x.status === 'Playing' && (!app || x.app.toLowerCase().includes(String(app).toLowerCase())))) ? 'pause' : 'play';
+  if (['play', 'pause', 'next', 'previous', 'stop'].includes(a)) return J.pc('mediaControl', { action: a, app: app || '' });
   if (a === 'set_volume') return J.pc('setVolume', { level: +level || 0 });
   if (a === 'unmute') return J.pc('setMute', { on: false });
   if (a === 'mute') return J.pc('setMute', { on: true });
   if (a === 'volume_up' || a === 'volume_down') { const v = await J.pc('getVolume'); if (v.ok && v.volume != null) return J.pc('setVolume', { level: Math.max(0, Math.min(100, v.volume + (a === 'volume_up' ? 10 : -10))) }); return J.pc('media', { action: a, times: 5 }); }
   return J.pc('media', { action: a });
 }
+const APP_WORDS = [[/\bspotify\b/, 'spotify'], [/\b(?:youtube|yt)\b/, 'youtube'], [/\bnetflix\b/, 'netflix'], [/\bchrome\b/, 'chrome'], [/\b(?:edge)\b/, 'edge'], [/\bfirefox\b/, 'firefox'], [/\bvlc\b/, 'vlc'], [/\b(?:music|song|songs|track|playlist|album|tunes)\b/, 'music'], [/\b(?:video|show|movie|episode|film|series|stream|anime)\b/, 'video']];
+function mediaTarget(t){ for (const [re, app] of APP_WORDS) if (re.test(t)) return app; return ''; }
+async function runMedia(action, app){
+  const r = await J.pc('mediaControl', { action, app }); countAction(); refreshMedia();
+  if (!r.ok) return 'I couldn’t reach your media controls: ' + r.error;
+  if (r.done === false) return r.reason === 'Already playing.' ? 'It’s already playing.' : r.reason;
+  event(action + ': ' + (r.apps || []).join(', '));
+  return '';
+}
 async function quickMedia(t){
   let m;
-  const MUSIC = '(?: (?:the |my |this )?(?:music|song|track|spotify|video|youtube|playback|audio|it))?';
-  if (new RegExp('^(?:pause|stop|hold)' + MUSIC + '(?: (?:please|for a sec(?:ond)?|for now))?$').test(t)) {
-    const np = await J.pc('nowPlaying');
-    if (np.ok && np.app === 'Spotify' && np.playing === false) return 'It’s already paused.';
-    const r = await J.pc('media', { action: 'play_pause' }); countAction(); return r.ok ? '' : 'I couldn’t reach your media controls: ' + r.error;
-  }
-  if (new RegExp('^(?:play|resume|unpause|continue|start)' + MUSIC + '(?: (?:again|please))?$').test(t) || /^(?:play|resume) (?:the )?music$/.test(t)) {
-    const np = await J.pc('nowPlaying');
-    if (np.ok && np.app === 'Spotify' && np.playing === true) return 'It’s already playing.';
-    const r = await J.pc('media', { action: 'play_pause' }); countAction(); return r.ok ? '' : 'I couldn’t reach your media controls: ' + r.error;
-  }
-  if (/^(?:next|skip)(?: (?:the |this )?(?:song|track|one|it))?(?: please)?$|^(?:play )?(?:the )?next (?:song|track)$|^skip (?:this|it)$/.test(t)) { const r = await J.pc('media', { action: 'next' }); countAction(); return r.ok ? '' : r.error; }
-  if (/^(?:previous|prev|last|go back)(?: (?:song|track))?$|^(?:play )?(?:the )?(?:previous|last) (?:song|track)(?: again)?$/.test(t)) { const r = await J.pc('media', { action: 'previous' }); countAction(); return r.ok ? '' : r.error; }
+  // only plain media commands are handled instantly; anything more ("play some Drake on Spotify") goes to the AI
+  const FILL = new Set('the my this that on in it again please music song songs track video show movie episode film series stream spotify youtube yt netflix chrome edge firefox vlc playback audio player for now a sec second media tunes'.split(' '));
+  const pure = (verbRe) => { const w = t.replace(verbRe, '').trim().split(/\s+/).filter(Boolean); return w.every(x => FILL.has(x)); };
+  if (/^(?:pause|hold|stop)\b/.test(t) && !/^stop (?:listening|talking|it jarvis)$/.test(t) && pure(/^(?:pause|hold|stop)\b/)) return runMedia('pause', mediaTarget(t));
+  if (/^(?:play|resume|unpause|continue|start playing|keep playing)\b/.test(t) && pure(/^(?:play|resume|unpause|continue|start playing|keep playing)\b/)) return runMedia('play', mediaTarget(t));
+  if (/^(?:next|skip)(?: (?:the |this )?(?:song|track|one|it|video|episode))?(?: on [\w ]+)?(?: please)?$|^(?:play )?(?:the )?next (?:song|track|episode|video)$|^skip (?:this|it)$/.test(t)) return runMedia('next', mediaTarget(t));
+  if (/^(?:previous|prev|last|go back)(?: (?:song|track|video))?$|^(?:play )?(?:the )?(?:previous|last) (?:song|track|video)(?: again)?$/.test(t)) return runMedia('previous', mediaTarget(t));
   if ((m = t.match(/^(?:set |turn )?(?:the )?volume (?:to |at )?(\d{1,3})(?: ?%| percent)?$|^(?:turn it |put it )?(?:to )?(\d{1,3})(?: ?%| percent) volume$/))) { const lv = +(m[1] || m[2]); const r = await mediaAction('set_volume', lv); countAction(); return r.ok ? `Volume at ${r.volume} percent.` : r.error; }
   if (/^(?:turn (?:it|the (?:volume|music)) up|volume up|louder|(?:make it )?louder(?: please)?|crank it up)$/.test(t)) { const r = await mediaAction('volume_up'); countAction(); return r.ok ? '' : r.error; }
   if (/^(?:turn (?:it|the (?:volume|music)) down|volume down|quieter|(?:make it )?quieter(?: please)?|lower (?:the )?volume)$/.test(t)) { const r = await mediaAction('volume_down'); countAction(); return r.ok ? '' : r.error; }
   if (/^mute(?: (?:it|the (?:sound|volume|music|pc|computer)))?$/.test(t)) { const r = await mediaAction('mute'); countAction(); return r.ok ? '' : r.error; }
   if (/^unmute(?: (?:it|the (?:sound|volume|music|pc|computer)))?$/.test(t)) { const r = await mediaAction('unmute'); countAction(); return r.ok ? '' : r.error; }
   if (/^(?:what(?:'?s| is) (?:this|playing|this song|the song|that song)|what song is (?:this|playing|that)|now playing|who(?:'?s| is) (?:this|singing|this by))$/.test(t)) {
-    const np = await J.pc('nowPlaying');
-    if (!np.ok) return 'I can’t see your media player right now.';
-    if (np.app === 'Spotify') return np.playing ? `This is ${np.title.replace(' - ', ' — ')}.` : 'Spotify is paused at the moment.';
-    if (np.app === 'YouTube') return `You have ${np.title} open on YouTube.`;
-    return 'I don’t see anything playing in Spotify or YouTube.';
+    const np = await J.pc('mediaSessions');
+    if (!np.ok) return 'I can’t see your media players right now.';
+    const list = np.sessions || [];
+    const p = list.find(x => x.status === 'Playing' && x.music) || list.find(x => x.status === 'Playing');
+    if (p) return `${p.title ? p.title + (p.artist ? ' by ' + p.artist : '') : 'Something'}, playing in ${p.app}.`;
+    if (list.length) return 'Nothing is playing. Paused: ' + list.map(x => (x.title ? x.title + ' in ' : '') + x.app).join('; ') + '.';
+    return 'Nothing is playing right now.';
   }
   return null;   // not a media command
 }
@@ -695,6 +711,16 @@ function earcon(up = true){
     g.gain.setValueAtTime(.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(.08, c.currentTime + .02); g.gain.exponentialRampToValueAtTime(.0001, c.currentTime + .18);
     o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + .2); setTimeout(() => c.close(), 400);
   } catch {}
+}
+
+/* live picture of what's running, for the AI */
+async function refreshMedia(){ const r = await J.pc('mediaSessions').catch(() => null); if (r && r.ok) S.media = r.sessions || []; }
+async function refreshApps(){ const r = await J.pc('apps').catch(() => null); if (r && r.ok) S.apps = r.apps || []; }
+function pcSnapshot(){
+  const media = S.media.map(x => `${x.app} ${x.status.toLowerCase()}${x.title ? ` "${x.title}${x.artist ? ' — ' + x.artist : ''}"` : ''}`).join('; ');
+  const fg = S.apps.filter(a => !a.background).slice(0, 12).map(a => a.name + (a.windows && a.windows[0] && a.windows[0] !== a.name ? ` ("${String(a.windows[0]).slice(0, 50)}")` : '')).join(', ');
+  const bg = S.apps.filter(a => a.background).slice(0, 15).map(a => a.name).join(', ');
+  return (media ? 'Media players: ' + media + '.\n' : '') + (fg ? 'Open apps: ' + fg + '.\n' : '') + (bg ? 'Running in the background: ' + bg + '.\n' : '');
 }
 
 /* ============================================================ quick commands (instant, no AI needed) */
@@ -1123,6 +1149,8 @@ async function boot(){
   tick(); setInterval(tick, 1000);
   setInterval(() => { if (!document.hidden && S.visible) { drawActivity(); renderRelays(); } }, 1000);
   setInterval(() => { checkGame().catch(() => {}); }, 15000);
+  setTimeout(() => { refreshMedia(); refreshApps(); }, 6000);
+  setInterval(refreshMedia, 20000); setInterval(refreshApps, 60000);
   pollStats(); setInterval(() => { if (!document.hidden && S.visible) pollStats(); }, 5000); setInterval(() => { if (!document.hidden && S.visible) pollGpu(); }, 8000);
   if (S.city) { $('#wCity').value = S.city.name.split(',')[0]; loadWeather(); }
   loadBtc(); setInterval(loadBtc, 60000); setInterval(loadWeather, 15 * 60000);
