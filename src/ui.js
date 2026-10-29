@@ -24,6 +24,8 @@ const MODELS = [
 const S = {
   info:{}, name:store.get('name', ''), ollama:false, models:[], model:store.get('model', ''), caps:[], modelSize:0,
   deep:store.get('deep', false), duck:store.get('duck', true), visible:true, media:[], apps:[],
+  theme:(store.get('theme18', false) ? store.get('theme', 'neon') : (store.set('theme18', true), store.set('theme', 'neon'), 'neon')),
+  pet:store.get('pet', true),
   screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
   pending:null, history:[], run:0, chatId:null,
   confirm:store.get('confirm', true), autoSafe:store.get('autoSafe', true),
@@ -40,14 +42,18 @@ const QUALITY = {
 };
 let quality = store.get('quality', 'balanced'); if (!QUALITY[quality]) quality = 'balanced';
 let Q = QUALITY[quality];
-function applyQuality(){ document.body.classList.toggle('noblur', !Q.blur); }
+function applyQuality(){ document.body.classList.toggle('noblur', !Q.blur); document.body.classList.toggle('theme-neon', S.theme === 'neon'); }
+const accentRGB = () => S.theme === 'neon' ? '60,240,220' : '143,227,255';
 const speaking = () => !!(V && V.speaking);
 const userName = () => S.name || (S.info.user ? S.info.user[0].toUpperCase() + S.info.user.slice(1) : 'Operator');
 
 /* ============================================================ UI helpers */
 function tb(id, val, cls){ const el = $(id); el.className = 'tb ' + (cls || ''); el.querySelector('b').textContent = val; }
+let petState = '';
 function setState(){
-  const t = speaking() ? 'speaking' : S.thinking ? 'thinking' : S.listening ? 'listening' : (S.wake ? 'say “jarvis”' : 'standby');
+  const t = speaking() ? 'speaking' : S.thinking ? 'thinking' : S.listening ? 'listening' : (S.wake ? 'say “hey jarvis”' : 'standby');
+  const ps = speaking() ? 'speaking' : S.thinking ? 'thinking' : S.listening ? 'listening' : 'idle';
+  if (ps !== petState) { petState = ps; J.pet.set({ state: ps }); }
   $('#state').textContent = t;
   $('#mic').classList.toggle('on', S.listening);
   tb('#tbMic', S.listening ? 'LIVE' : S.wake ? 'WAKE' : 'OFF', S.listening || S.wake ? 'on' : '');
@@ -94,7 +100,7 @@ function speak(text){
   return V.speak(text, voiceOpts()).then(() => { if (S.wake) S.awaitingUntil = Date.now() + 8000; });
 }
 function stopVoice(){ if (V) V.stopSpeaking(); setState(); }
-function reply(text){ addMsg('jarvis', text); return speak(text); }
+function reply(text){ addMsg('jarvis', text); J.pet.set({ say: text }); return speak(text); }
 
 /* ============================================================ listening */
 async function talk(){
@@ -152,10 +158,10 @@ async function setWake(on){
 }
 const ACKS = ['Yes, sir?', 'Sir?', 'At your service.', 'Go ahead, sir.'];
 let wakeBusy = false;
-async function onWakeWord(score){
+async function onWakeWord(score, interrupted){
   if (wakeBusy || S.listening) return;
   wakeBusy = true;
-  event('heard “Hey Jarvis” (' + Math.round(score * 100) + '%)');
+  event('heard “Hey Jarvis” (' + Math.round(score * 100) + '%)' + (interrupted ? ' — interrupting' : ''));
   try {
     if (S.thinking || speaking()) interrupt();
     if (!V.hearingReady) { await speak(V.hearingLoading ? 'One moment, sir — my hearing is still loading.' : 'My hearing isn’t set up yet, sir. Settings will walk you through it.'); return; }
@@ -164,7 +170,8 @@ async function onWakeWord(score){
     let restoreVol = null;
     if (S.duck) { const v = await J.pc('getVolume').catch(() => null); if (v && v.ok && v.volume > 30 && !v.muted) { restoreVol = v.volume; J.pc('setVolume', { level: 25 }); } }
     // "Hey Jarvis, pause the music" in one breath: catch what follows straight away
-    let text = (await V.listenOnce(1800, true).catch(() => '')).replace(WAKE, '').replace(/^[\s,.!?]+/, '').trim();
+    // (when he was interrupted mid-sentence, skip the audio just heard: it's his own voice)
+    let text = (await V.listenOnce(1800, !interrupted).catch(() => '')).replace(WAKE, '').replace(/^[\s,.!?]+/, '').trim();
     if (!text) {
       S.listening = false; setState();
       await speak(pick(ACKS));
@@ -589,6 +596,7 @@ async function think(text){
         tn.textContent = said;
       }
       const rest = said.slice(spoken.length).trim(); if (rest) speak(rest);
+      if (said.trim() && !(r.tool_calls || []).length) J.pet.set({ say: said.trim() });
       const msg = { role:'assistant', content: r.content || '' };
       const calls = (r.tool_calls || []).map(tc => ({ function: { name: tc.function && tc.function.name, arguments: typeof (tc.function && tc.function.arguments) === 'string' ? safeJSON(tc.function.arguments) : (tc.function && tc.function.arguments) || {} } })).filter(c => c.function.name);
       if (calls.length) msg.tool_calls = calls;
@@ -646,11 +654,12 @@ async function lookAtScreen(question, target){
 /* ============================================================ game mode: free the graphics card while you play */
 let lastAI = Date.now();
 async function checkGame(){
-  if (!S.gameMode) { S.gaming = false; return; }
+  if (!S.gameMode) { if (S.gaming) J.pet.set({ gaming: false }); S.gaming = false; return; }
   const f = await J.pc('foreground');
   const was = S.gaming;
   S.gaming = !!(f.ok && f.fullscreen && f.app && !/^(jarvis|explorer|applicationframehost|searchhost|shellexperiencehost|lockapp)$/i.test(f.app));
   S.gameApp = S.gaming ? f.app : '';
+  if (S.gaming !== was) J.pet.set({ gaming: S.gaming });
   if (S.gaming && !was) { event('game mode: ' + f.app); S.unloaded = false; }
   if (S.gaming && !S.unloaded && !S.thinking && Date.now() - lastAI > 45000 && S.model) {
     const r = await J.ollama.unload(S.model);
@@ -787,7 +796,7 @@ function drawSpark(sel, data, fixedMax, fit, color){
   let lo = 0, hi = fixedMax || Math.max(...data, 1) * 1.2;
   if (fit) { lo = Math.min(...data); hi = Math.max(...data); if (hi === lo) { hi += 1; lo -= 1; } }
   const step = w / 59, pts = data.map((v, i) => [w - (data.length - 1 - i) * step, h - ((v - lo) / (hi - lo)) * (h - 4) - 2]);
-  const c = color || '143,227,255';
+  const c = color || accentRGB();
   const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, `rgba(${c},.25)`); g.addColorStop(1, `rgba(${c},0)`);
   x.beginPath(); pts.forEach(([a, b], i) => i ? x.lineTo(a, b) : x.moveTo(a, b));
   x.strokeStyle = `rgba(${c},.9)`; x.lineWidth = 1.2; x.stroke();
@@ -795,7 +804,8 @@ function drawSpark(sel, data, fixedMax, fit, color){
 }
 function drawBars(sel, arr){
   const [x, w, h] = sizeCanvas($(sel)); const max = Math.max(...arr, 1), bw = w / 24, now = new Date().getHours();
-  arr.forEach((v, i) => { const bh = v ? Math.max(3, v / max * (h - 2)) : 1; x.fillStyle = i === now ? 'rgba(143,227,255,.95)' : v ? 'rgba(143,227,255,.5)' : 'rgba(170,205,230,.12)'; x.fillRect(i * bw + 1, h - bh, bw - 2, bh); });
+  const ac = accentRGB();
+  arr.forEach((v, i) => { const bh = v ? Math.max(3, v / max * (h - 2)) : 1; x.fillStyle = i === now ? (S.theme === 'neon' ? 'rgba(255,95,180,.95)' : `rgba(${ac},.95)`) : v ? `rgba(${ac},.5)` : 'rgba(170,205,230,.12)'; x.fillRect(i * bw + 1, h - bh, bw - 2, bh); });
 }
 function drawActivity(){
   S.actMic.push(S.micLv); S.actVoice.push(V ? (V.outLevel || 0) : 0);
@@ -803,7 +813,7 @@ function drawActivity(){
   drawSpark('#sparkAct', S.actMic, 1);
   const c = $('#sparkAct'), x = c.getContext('2d'), w = c.clientWidth, h = c.clientHeight, step = w / 59;
   x.beginPath(); S.actVoice.forEach((v, i) => { const a = w - (S.actVoice.length - 1 - i) * step, b = h - Math.min(1, v) * (h - 4) - 2; i ? x.lineTo(a, b) : x.moveTo(a, b); });
-  x.strokeStyle = 'rgba(255,211,138,.85)'; x.lineWidth = 1.2; x.stroke();
+  x.strokeStyle = S.theme === 'neon' ? 'rgba(255,95,180,.9)' : 'rgba(255,211,138,.85)'; x.lineWidth = 1.2; x.stroke();
 }
 async function pollStats(){ try { renderStats(await J.stats()); } catch {} }
 async function pollGpu(){
@@ -1010,6 +1020,10 @@ function wire(){
   });
   J.on('hotkey:talk', () => talk());
   J.on('tray:wake', on => setWake(!!on));
+  J.on('pet:off', () => { S.pet = false; store.set('pet', false); $('#petChk').checked = false; J.pet.set({ show: false }); });
+  $('#petChk').checked = S.pet; $('#petChk').onchange = e => { S.pet = e.target.checked; store.set('pet', S.pet); J.pet.set({ show: S.pet }); };
+  J.pet.set({ theme: S.theme, show: S.pet, state: 'idle' });
+  setInterval(() => { if (petState === 'speaking' || petState === 'listening') J.pet.set({ level: petState === 'speaking' ? (V && V.outLevel || 0) : S.micLv }); }, 90);
   J.on('win:visible', v => { S.visible = v; });
   J.isVisible().then(v => { S.visible = v; });
   $('#screenChk').checked = S.screen; $('#screenChk').onchange = e => { S.screen = e.target.checked; store.set('screen', S.screen); };
@@ -1063,6 +1077,8 @@ function wire(){
   $('#sens').oninput = e => { S.sens = +e.target.value; store.set('sens', S.sens); if (V) { V.sensitivity = S.sens; V.wakeThreshold = 0.75 - 0.45 * S.sens; } showS(); };
   $('#autoSafe').checked = S.autoSafe; $('#autoSafe').onchange = e => { S.autoSafe = e.target.checked; store.set('autoSafe', S.autoSafe); };
   $('#confirm').checked = S.confirm; $('#confirm').onchange = e => { S.confirm = e.target.checked; store.set('confirm', S.confirm); };
+  $('#themeSel').value = S.theme;
+  $('#themeSel').onchange = e => { S.theme = e.target.value; store.set('theme', S.theme); applyQuality(); buildScene(); renderCounters(); J.pet && J.pet.theme(S.theme); event('theme: ' + S.theme); };
   $('#qualSel').value = quality;
   $('#qualSel').onchange = e => { quality = e.target.value; store.set('quality', quality); Q = QUALITY[quality]; applyQuality(); buildScene(); event('visual quality: ' + quality); };
   $('#celsius').checked = S.celsius; $('#celsius').onchange = e => { S.celsius = e.target.checked; store.set('celsius', S.celsius); loadWeather(); };

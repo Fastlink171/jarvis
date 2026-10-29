@@ -30,6 +30,7 @@ async function loadHearing(model, onProgress) {
 }
 
 async function loadVoice(onProgress) {
+  if (!tts) env.backends.onnx.wasm.numThreads = Math.max(2, Math.min(6, Math.floor((navigator.hardwareConcurrency || 4) / 2)));   // more threads = faster speech
   if (!tts) tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', { dtype: 'q8', device: 'wasm', progress_callback: onProgress });
   const voices = Object.entries(tts.voices || {}).map(([id, v]) => ({ id, name: (v && v.name) || id, gender: v && v.gender }));
   return { device: 'cpu', voices };

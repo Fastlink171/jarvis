@@ -51,9 +51,12 @@ function feedWake(f) {
     wakeW('wakeFeed', { chunk }, null, [chunk.buffer]).then(score => {
       wakePending--; V.wakeScore = score;
       const now = performance.now();
-      if (score >= V.wakeThreshold && wakeOn && now > wakeCooldown && !V.speaking && now > mutedUntil && mode !== 'once') {
+      const talking = V.speaking || now < mutedUntil;
+      const selfSay = /jarvis/i.test(V.currentText || '');
+      const need = talking ? Math.max(V.wakeThreshold, 0.6) : V.wakeThreshold;
+      if (score >= need && wakeOn && now > wakeCooldown && mode !== 'once' && !(talking && selfSay)) {
         wakeCooldown = now + 2500;
-        wakeCb && wakeCb(score);
+        wakeCb && wakeCb(score, talking);
       }
     }).catch(() => { wakePending--; });
   }
@@ -201,7 +204,15 @@ function splitSentences(text) {
   const out = []; let cur = '';
   for (const p of parts) { if ((cur + p).length < 40) cur += p; else { if (cur) out.push(cur.trim()); cur = p; } }
   if (cur.trim()) out.push(cur.trim());
-  return out.filter(s => /\w/.test(s));
+  // long sentences take long to render: split them at commas so speech starts sooner and flows on
+  const fin = [];
+  for (const sn of out) {
+    if (sn.length <= 110) { fin.push(sn); continue; }
+    let c = '';
+    for (const piece of sn.split(/(?<=,)\s+|\s+(?=(?:and|but|so|because|which|while|although)\s)/)) { if ((c + ' ' + piece).length > 90 && c.length > 30) { fin.push(c.trim()); c = piece; } else c = c ? c + ' ' + piece : piece; }
+    if (c.trim()) fin.push(c.trim());
+  }
+  return fin.filter(s => /\w/.test(s));
 }
 
 // opts: { engine: 'kokoro'|'windows', voice, speed, winVoice, rate, pitch }
@@ -209,29 +220,32 @@ function speak(text, opts = {}) {
   const parts = splitSentences(text);
   if (!parts.length) return Promise.resolve();
   return new Promise(resolve => {
-    parts.forEach((p, i) => queue.push({ text: p, opts, done: i === parts.length - 1 ? resolve : null, gen: genId }));
+    parts.forEach((p, i) => {
+      const item = { text: p, opts, done: i === parts.length - 1 ? resolve : null, gen: genId };
+      // start rendering right away, while earlier sentences are still playing — no gaps between sentences
+      if (opts.engine !== 'windows' && V.voiceReady) item.audioP = synth(item).catch(e => { V.log('voice error: ' + e.message); return null; });
+      queue.push(item);
+    });
     runQueue();
   });
 }
 async function runQueue() {
   if (qRunning) return; qRunning = true;
-  let pending = null;   // pre-synthesised next sentence
   while (queue.length) {
     const item = queue.shift();
     if (item.gen !== genId) { item.done && item.done(); continue; }
     setSpeaking(true);
-    const useKokoro = item.opts.engine !== 'windows' && V.voiceReady;
+    V.currentText = item.text;
     try {
-      if (useKokoro) {
-        const audio = pending && pending.text === item.text ? await pending.p : await synth(item);
-        pending = null;
-        const nxt = queue[0];
-        if (nxt && nxt.gen === genId && nxt.opts.engine !== 'windows') pending = { text: nxt.text, p: synth(nxt).catch(() => null) };
+      if (item.audioP) {
+        const audio = await item.audioP;
         if (audio && item.gen === genId) await play(audio);
+        else if (!audio && item.gen === genId) await speakWindows(item.text, item.opts);
       } else await speakWindows(item.text, item.opts);
     } catch (e) { V.log('voice error: ' + e.message); try { await speakWindows(item.text, item.opts); } catch {} }
     item.done && item.done();
   }
+  V.currentText = '';
   qRunning = false; setSpeaking(false);
 }
 const synthCache = new Map();
@@ -253,8 +267,8 @@ function play({ samples, rate }) {
     const an = playCtx.createAnalyser(); an.fftSize = 256; const data = new Uint8Array(an.frequencyBinCount);
     src.connect(an); an.connect(playCtx.destination);
     playing = src;
-    let raf = 0; const meter = () => { an.getByteFrequencyData(data); let s = 0; for (const v of data) s += v; V.outLevel = Math.min(1, s / data.length / 60); raf = requestAnimationFrame(meter); }; meter();
-    src.onended = () => { cancelAnimationFrame(raf); V.outLevel = 0; playing = null; res(); };
+    const iv = setInterval(() => { an.getByteFrequencyData(data); let s = 0; for (const v of data) s += v; V.outLevel = Math.min(1, s / data.length / 60); }, 50);
+    src.onended = () => { clearInterval(iv); V.outLevel = 0; playing = null; res(); };
     src.start();
   });
 }

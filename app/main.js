@@ -573,3 +573,51 @@ ipcMain.handle('screen:capture', async (e, target) => {
 ipcMain.handle('ollama:unload', async (e, model) => {
   try { await ojson('/api/generate', { model, keep_alive: 0 }, 10000); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
 });
+
+/* ------------------------------------------------------------------ desktop pet */
+let petWin = null, petWanted = false, petHiddenForGame = false, petDrag = null, petLast = {};
+function createPet() {
+  if (petWin) return;
+  const wa = screen.getPrimaryDisplay().workArea;
+  let pos = prefs.petPos;
+  const onScreen = pos && screen.getAllDisplays().some(d => pos.x > d.workArea.x - 120 && pos.x < d.workArea.x + d.workArea.width - 120 && pos.y > d.workArea.y - 130 && pos.y < d.workArea.y + d.workArea.height - 130);
+  if (!onScreen) pos = { x: wa.x + wa.width - 250, y: wa.y + wa.height - 262 };
+  petWin = new BrowserWindow({
+    width: 240, height: 260, x: pos.x, y: pos.y, transparent: true, frame: false, resizable: false, movable: true,
+    alwaysOnTop: true, skipTaskbar: true, hasShadow: false, focusable: false, show: false, backgroundColor: '#00000000', title: 'Jarvis pet',
+    webPreferences: { preload: path.join(__dirname, 'pet-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
+  });
+  petWin.setAlwaysOnTop(true, 'floating');
+  petWin.setIgnoreMouseEvents(true, { forward: true });          // clicks pass through except on the bot itself
+  petWin.loadURL('app://jarvis/pet.html');
+  petWin.on('closed', () => { petWin = null; });
+}
+function updatePetVisibility() {
+  const show = petWanted && !petHiddenForGame;
+  if (show) { createPet(); if (petWin && !petWin.isVisible() && petWin.webContents.isLoading() === false) petWin.showInactive(); }
+  else if (petWin && petWin.isVisible()) petWin.hide();
+}
+ipcMain.on('pet:ready', () => { if (!petWin) return; petWin.webContents.send('pet:update', petLast); if (petWanted && !petHiddenForGame) petWin.showInactive(); });
+ipcMain.on('pet:mouse', (e, over) => { if (petWin) petWin.setIgnoreMouseEvents(!over, { forward: true }); });
+ipcMain.on('pet:dragStart', () => { if (petWin) { const [x, y] = petWin.getPosition(); petDrag = { x, y }; } });
+ipcMain.on('pet:drag', (e, dx, dy) => { if (petWin && petDrag) petWin.setPosition(Math.round(petDrag.x + dx), Math.round(petDrag.y + dy)); });
+ipcMain.on('pet:dragEnd', () => { if (petWin) { const [x, y] = petWin.getPosition(); prefs.petPos = { x, y }; savePrefs(); } petDrag = null; });
+ipcMain.on('pet:click', () => { if (win) win.webContents.send('hotkey:talk'); });
+ipcMain.on('pet:menu', () => {
+  if (!petWin) return;
+  Menu.buildFromTemplate([
+    { label: 'Talk to Jarvis', click: () => win && win.webContents.send('hotkey:talk') },
+    { label: 'Show Jarvis', click: showWindow },
+    { label: 'Listen for “Hey Jarvis”', type: 'checkbox', checked: wakeOn, click: m => win && win.webContents.send('tray:wake', m.checked) },
+    { type: 'separator' },
+    { label: 'Hide pet', click: () => win && win.webContents.send('pet:off') }
+  ]).popup({ window: petWin });
+});
+ipcMain.handle('pet:set', (e, d) => {
+  if ('show' in d) { petWanted = !!d.show; updatePetVisibility(); }
+  if ('gaming' in d) { petHiddenForGame = !!d.gaming; updatePetVisibility(); }
+  const upd = {};
+  for (const k of ['state', 'level', 'say', 'theme']) if (k in d) upd[k] = d[k];
+  if (Object.keys(upd).length) { Object.assign(petLast, upd); delete petLast.say; if (petWin) petWin.webContents.send('pet:update', upd); }
+  return true;
+});

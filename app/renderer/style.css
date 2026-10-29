@@ -178,3 +178,26 @@ code{color:var(--acc2);background:rgba(0,0,0,.35);padding:1px 5px}
 .noblur .panel,.noblur .tb,.noblur .badge,.noblur .wakepill,.noblur .drawer,.noblur .modal,.noblur .boot,.noblur .setup{backdrop-filter:none}
 .noblur .panel{background:rgba(6,13,22,.74)}
 .noblur .tb{background:rgba(6,13,22,.8)}
+
+/* ---------------- Neon Pop theme (original teal & pink stage look) ---------------- */
+.theme-neon{--ink:#eafffb;--dim:#9fb7d6;--faint:#6f7fa6;--acc:#3ff0d8;--acc2:#b9fff5;--warn:#ff7cc4;--bad:#ff6a8a;--ok:#7dffcf;
+  --panel:rgba(16,6,34,.5);--edge:rgba(120,240,225,.2);--edge2:rgba(120,240,225,.09)}
+.theme-neon body,body.theme-neon{background:#0b0420}
+.theme-neon .logo{color:#fff;text-shadow:0 0 14px rgba(255,95,180,.55),0 0 2px rgba(63,240,216,.9)}
+.theme-neon .logo small{color:#ff9fd4}
+.theme-neon .panel{box-shadow:inset 0 1px 0 rgba(255,95,180,.18)}
+.theme-neon .ph{color:#fff}
+.theme-neon .ph span{color:#ff8fcf}
+.theme-neon .row.user>b{color:#ff7cc4}
+.theme-neon .row.jarvis>b{color:#3ff0d8}
+.theme-neon .tb .ic{color:#ff7cc4}
+.theme-neon .state{text-shadow:0 0 12px rgba(255,95,180,.8)}
+.theme-neon .sq.on{background:#ff5fb4;border-color:#ff5fb4;box-shadow:0 0 16px #ff5fb4}
+.theme-neon .meter i{background:linear-gradient(90deg,#3ff0d8,#ff5fb4)}
+.theme-neon .relays i.on{background:#3ff0d8;box-shadow:0 0 5px #3ff0d8}
+.theme-neon .relays i.hot{background:#ff5fb4;box-shadow:0 0 5px #ff5fb4}
+.theme-neon .wakepill.on i{background:#ff5fb4;box-shadow:0 0 8px #ff5fb4}
+.theme-neon .badge svg{color:#ff7cc4}
+.theme-neon.noblur .panel{background:rgba(16,6,34,.76)}
+.theme-neon.noblur .tb{background:rgba(16,6,34,.82)}
+.theme-neon .modal .panel,.theme-neon .setupBox{background:rgba(14,5,30,.95)}

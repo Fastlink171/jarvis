@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>Jarvis pet</title>
+<style>
+html,body{margin:0;height:100%;background:transparent;overflow:hidden;user-select:none;font-family:'Segoe UI',system-ui,sans-serif}
+canvas{position:absolute;left:0;top:0;width:240px;height:260px}
+#bubble{position:absolute;left:10px;right:10px;bottom:176px;display:none;justify-content:center}
+#bubble div{max-width:216px;background:rgba(12,6,30,.92);color:#eafffb;border:1px solid rgba(63,240,216,.55);box-shadow:0 0 14px rgba(255,95,180,.35);
+  border-radius:12px;padding:7px 10px;font-size:12px;line-height:1.35;text-align:center;position:relative}
+#bubble div:after{content:"";position:absolute;left:50%;bottom:-7px;margin-left:-6px;border:6px solid transparent;border-top-color:rgba(63,240,216,.55);border-bottom:0}
+.classic #bubble div{border-color:rgba(143,227,255,.55);box-shadow:0 0 14px rgba(143,227,255,.3);background:rgba(6,13,22,.92)}
+.classic #bubble div:after{border-top-color:rgba(143,227,255,.55)}
+</style>
+</head>
+<body>
+<canvas id="c" width="480" height="520"></canvas>
+<div id="bubble"><div id="say"></div></div>
+<script src="pet.js"></script>
+</body>
+</html>

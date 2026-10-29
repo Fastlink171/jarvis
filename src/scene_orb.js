@@ -2,11 +2,53 @@
 const scene = $('#scene'), sx = scene.getContext('2d');
 let bgImg = null, motes = [];
 function rnd(seed){ return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
+function buildNeon(x, W, H, R){
+  // night stage: deep violet sky, glowing striped sun, skyline, neon grid floor, stage beams
+  const sky = x.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#05021a'); sky.addColorStop(.38, '#160a3a'); sky.addColorStop(.62, '#3b0f55'); sky.addColorStop(.71, '#7a1a6e'); sky.addColorStop(.72, '#0b0420'); sky.addColorStop(1, '#05020f');
+  x.fillStyle = sky; x.fillRect(0, 0, W, H);
+  for (let i = 0; i < 220; i++) { x.fillStyle = `rgba(${R() < .5 ? '190,255,245' : '255,200,235'},${R() * .7})`; const z = R() * 1.4; x.fillRect(R() * W, R() * H * .6, z, z); }
+  const hz = H * .715, sx0 = W * .5, sr = Math.min(W, H) * .2;
+  let g = x.createRadialGradient(sx0, hz, 0, sx0, hz, sr * 3.2); g.addColorStop(0, 'rgba(255,80,170,.45)'); g.addColorStop(.4, 'rgba(120,40,170,.18)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.save(); x.beginPath(); x.arc(sx0, hz, sr, Math.PI, 0); x.clip();
+  g = x.createLinearGradient(0, hz - sr, 0, hz); g.addColorStop(0, '#ffd2f0'); g.addColorStop(.45, '#ff5fb4'); g.addColorStop(1, '#7a2bd6');
+  x.fillStyle = g; x.fillRect(sx0 - sr, hz - sr, sr * 2, sr);
+  x.fillStyle = '#160a3a'; for (let i = 0; i < 7; i++) { const yy = hz - sr * .55 + i * sr * .085, hh = 2 + i * 1.6; x.fillRect(sx0 - sr, yy, sr * 2, hh); }
+  x.restore();
+  // skyline
+  x.fillStyle = '#0a0420';
+  let px = 0; const sky2 = [];
+  while (px < W) { const bw = 18 + R() * 46, bh = H * (.04 + R() * .13) * (Math.abs(px - sx0) < sr * 1.1 ? .55 : 1); sky2.push([px, bw, bh]); x.fillRect(px, hz - bh, bw - 2, bh); px += bw; }
+  for (const [bx, bw, bh] of sky2) for (let wy = hz - bh + 6; wy < hz - 4; wy += 7) for (let wx = bx + 4; wx < bx + bw - 6; wx += 6) if (R() < .18) { x.fillStyle = R() < .6 ? 'rgba(60,240,220,.75)' : 'rgba(255,110,190,.7)'; x.fillRect(wx, wy, 2, 3); }
+  // neon grid floor
+  g = x.createLinearGradient(0, hz, 0, H); g.addColorStop(0, '#12062e'); g.addColorStop(1, '#030108');
+  x.fillStyle = g; x.fillRect(0, hz, W, H - hz);
+  x.lineWidth = 1;
+  for (let i = -24; i <= 24; i++) { x.strokeStyle = `rgba(60,240,220,${.35 - Math.abs(i) * .01})`; x.beginPath(); x.moveTo(sx0 + i * 18, hz); x.lineTo(sx0 + i * W * .16, H); x.stroke(); }
+  for (let k = 1; k < 18; k++) { const t = Math.pow(k / 18, 2.2), yy = hz + (H - hz) * t; x.strokeStyle = `rgba(255,95,180,${.12 + t * .45})`; x.beginPath(); x.moveTo(0, yy); x.lineTo(W, yy); x.stroke(); }
+  g = x.createLinearGradient(0, hz - 3, 0, hz + 3); g.addColorStop(0, 'rgba(255,120,200,0)'); g.addColorStop(.5, 'rgba(255,150,220,.9)'); g.addColorStop(1, 'rgba(255,120,200,0)');
+  x.fillStyle = g; x.fillRect(0, hz - 3, W, 6);
+  // stage light beams
+  [[.08, '60,240,220'], [.92, '255,95,180'], [.22, '255,95,180'], [.78, '60,240,220']].forEach(([fx, col], i) => {
+    const bx = W * fx, ang = (fx < .5 ? 1 : -1) * (.32 + i * .05);
+    x.save(); x.translate(bx, H); x.rotate(ang);
+    const bg = x.createLinearGradient(0, 0, 0, -H * 1.1); bg.addColorStop(0, `rgba(${col},.22)`); bg.addColorStop(1, `rgba(${col},0)`);
+    x.fillStyle = bg; x.beginPath(); x.moveTo(-6, 0); x.lineTo(6, 0); x.lineTo(70, -H * 1.1); x.lineTo(-70, -H * 1.1); x.closePath(); x.fill(); x.restore();
+  });
+  g = x.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .3, W / 2, H / 2, Math.max(W, H) * .75); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(3,0,10,.55)');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+}
 function buildScene(){
   const W = innerWidth, H = innerHeight, dpr = Math.min(devicePixelRatio || 1, Q.dpr);
   scene.width = W * dpr; scene.height = H * dpr;
   const c = document.createElement('canvas'); c.width = W * dpr; c.height = H * dpr;
   const x = c.getContext('2d'); x.scale(dpr, dpr); const R = rnd(7);
+  if (S.theme === 'neon') {
+    buildNeon(x, W, H, R); bgImg = c;
+    motes = Array.from({ length: Math.round(W * H / 60000) }, () => ({ x: Math.random() * W, y: Math.random() * H, r: 5 + Math.random() * 6, vx: (Math.random() - .5) * .15, vy: -.12 - Math.random() * .25, p: Math.random() * 7, k: Math.floor(Math.random() * 4) }));
+    return;
+  }
   // sky
   const sky = x.createLinearGradient(0, 0, 0, H);
   sky.addColorStop(0, '#07111f'); sky.addColorStop(.35, '#15304a'); sky.addColorStop(.62, '#3b5b78'); sky.addColorStop(.8, '#2a4258'); sky.addColorStop(1, '#0a1420');
@@ -58,6 +100,13 @@ const moteSprite = (() => {
   g.addColorStop(0, 'rgba(190,235,255,1)'); g.addColorStop(.35, 'rgba(150,215,245,.5)'); g.addColorStop(1, 'rgba(150,215,245,0)');
   x.fillStyle = g; x.fillRect(0, 0, 64, 64); return c;
 })();
+const noteSprites = ['♪', '♫', '♪', '♬'].map((ch, i) => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+  const col = i % 2 ? '255,95,180' : '60,240,220';
+  x.font = '40px serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.shadowColor = `rgba(${col},.9)`; x.shadowBlur = 12; x.fillStyle = `rgba(${col},1)`; x.fillText(ch, 32, 34);
+  return c;
+});
 function drawScene(t){
   const W = innerWidth, H = innerHeight, dpr = scene.width / W;
   sx.setTransform(1, 0, 0, 1, 0, 0); sx.drawImage(bgImg, 0, 0); sx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -66,7 +115,8 @@ function drawScene(t){
     for (const m of motes) {
       m.x += m.vx * step; m.y += m.vy * step; if (m.y < -20) { m.y = H + 20; m.x = Math.random() * W; } if (m.x < -20) m.x = W + 20; if (m.x > W + 20) m.x = -20;
       sx.globalAlpha = (.35 + .35 * Math.sin(t / 900 + m.p)) * (m.r > 4 ? .35 : .9);
-      const d = m.r * 4.8; sx.drawImage(moteSprite, m.x - d / 2, m.y - d / 2, d, d);
+      if (S.theme === 'neon') { const d = m.r * 3.2; sx.drawImage(noteSprites[m.k || 0], m.x - d / 2, m.y - d / 2, d, d); }
+      else { const d = m.r * 4.8; sx.drawImage(moteSprite, m.x - d / 2, m.y - d / 2, d, d); }
     }
     sx.globalAlpha = 1;
   }
@@ -85,7 +135,9 @@ function drawOrb(t){
   if (S.speaking) S.level = Math.max(S.level, .25 + .2 * Math.sin(t / 90));
   if (S.thinking) S.level = Math.max(S.level, .18);
   S.level *= .93; const lv = S.level;
-  const tint = S.thinking ? '255,211,138' : '143,227,255';
+  const neon = S.theme === 'neon';
+  const tint = S.thinking ? (neon ? '255,95,180' : '255,211,138') : (neon ? '60,240,220' : '143,227,255');
+  const arcTint = neon ? '255,95,180' : tint;
 
   const g = ox.createRadialGradient(cx, cy, 0, cx, cy, R * 1.5);
   g.addColorStop(0, `rgba(${tint},${.06 + lv * .18})`); g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -93,7 +145,7 @@ function drawOrb(t){
 
   const ay = sec * (.18 + lv * .7), ax = .38;
   const sy = Math.sin(ay), cyy = Math.cos(ay), sxx = Math.sin(ax), cxx = Math.cos(ax);
-  ox.fillStyle = 'rgb(225,242,255)';
+  ox.fillStyle = neon ? 'rgb(205,255,248)' : 'rgb(225,242,255)';
   for (const d of dots) {
     const [x, y, z, n] = d;
     const x1 = x * cyy - z * sy, z1 = x * sy + z * cyy, y1 = y * cxx - z1 * sxx, z2 = y * sxx + z1 * cxx;
@@ -114,9 +166,9 @@ function drawOrb(t){
   // signature bright arc
   const base = -0.9 + Math.sin(sec * .4) * .25 + (S.thinking ? sec * 2.5 : 0);
   ox.lineCap = 'round';
-  ox.strokeStyle = `rgba(${tint},.12)`; ox.lineWidth = 16 + lv * 6; ox.beginPath(); ox.arc(cx, cy, R * 1.38, base, base + .75 + lv * .6); ox.stroke();
-  ox.strokeStyle = `rgba(${tint},.22)`; ox.lineWidth = 9 + lv * 4; ox.beginPath(); ox.arc(cx, cy, R * 1.38, base, base + .75 + lv * .6); ox.stroke();
-  ox.strokeStyle = `rgba(${tint},${.85})`; ox.lineWidth = 4 + lv * 3;
+  ox.strokeStyle = `rgba(${arcTint},.12)`; ox.lineWidth = 16 + lv * 6; ox.beginPath(); ox.arc(cx, cy, R * 1.38, base, base + .75 + lv * .6); ox.stroke();
+  ox.strokeStyle = `rgba(${arcTint},.22)`; ox.lineWidth = 9 + lv * 4; ox.beginPath(); ox.arc(cx, cy, R * 1.38, base, base + .75 + lv * .6); ox.stroke();
+  ox.strokeStyle = `rgba(${arcTint},${.85})`; ox.lineWidth = 4 + lv * 3;
   ox.beginPath(); ox.arc(cx, cy, R * 1.38, base, base + .75 + lv * .6); ox.stroke();
   ox.lineWidth = 1.5; ox.strokeStyle = `rgba(${tint},.35)`;
   ox.beginPath(); ox.arc(cx, cy, R * 1.38, base + Math.PI, base + Math.PI + .35); ox.stroke();
