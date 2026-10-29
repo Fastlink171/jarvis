@@ -1,0 +1,26 @@
+name: Build and release Jarvis
+
+# Runs when a version tag (v1.2.0 etc.) is pushed. Builds the Windows installer on
+# GitHub's Windows machines and publishes it as a release; installed copies of
+# Jarvis see the new release and update themselves.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

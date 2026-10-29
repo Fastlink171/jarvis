@@ -1,0 +1,77 @@
+{
+  "name": "jarvis",
+  "version": "1.1.0",
+  "description": "J.A.R.V.I.S. local AI assistant",
+  "main": "app/main.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "start": "node scripts/build.js && electron .",
+    "dist": "node scripts/build.js && electron-builder --win --x64 --publish never",
+    "release": "node scripts/build.js && electron-builder --win --x64 --publish always"
+  },
+  "author": "Fastlink171",
+  "license": "MIT",
+  "devDependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "electron": "^38.8.6",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "kokoro-js": "^1.2.1"
+  },
+  "productName": "Jarvis",
+  "build": {
+    "appId": "local.jarvis.assistant",
+    "productName": "Jarvis",
+    "copyright": "Jarvis",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "app/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "electronLanguages": [
+      "en-US"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Jarvis-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Jarvis",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Fastlink171",
+        "repo": "jarvis",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fastlink171/jarvis.git"
+  }
+}

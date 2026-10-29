@@ -1,0 +1,2 @@
+- Jarvis now updates himself. New versions download in the background and install when you restart him.
+- New Settings section: Updates (version, check now, restart & update).

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob: data:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net">
+<title>Jarvis</title>
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@1,800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div class="boot" id="boot">
+  <div class="bootBox">
+    <div class="logo">J.A.R.V.I.S<small>JUST A RATHER VERY INTELLIGENT SYSTEM</small></div>
+    <pre id="bootText"></pre>
+  </div>
+</div>
+
+<!-- first-run setup -->
+<div class="setup" id="setup">
+  <div class="setupBox">
+    <h2>J.A.R.V.I.S<small>FIRST-TIME SETUP · EVERYTHING RUNS ON THIS PC</small></h2>
+
+    <div class="step" id="stOllama"><i>1</i><div>
+      <h3>AI engine (Ollama)</h3>
+      <p id="stOllamaTxt">Checking for Ollama…</p>
+      <div class="acts" id="stOllamaActs" style="display:none">
+        <button class="btn big" id="getOllama">DOWNLOAD OLLAMA</button>
+        <button class="btn big" id="recheckOllama">CHECK AGAIN</button>
+      </div>
+    </div></div>
+
+    <div class="step" id="stBrain"><i>2</i><div>
+      <h3>Brain</h3>
+      <p>Pick Jarvis's brain. It downloads once and runs on your graphics card. You can change it later in Settings.</p>
+      <div class="models" id="modelChoices"></div>
+      <div class="mini" style="margin-top:8px"><input id="customModel" placeholder="…or type any Ollama model name (e.g. qwen3:14b)"></div>
+      <div class="acts" style="margin-top:8px"><button class="btn big" id="pullBtn">DOWNLOAD &amp; USE</button><button class="btn big no" id="pullCancel" style="display:none">CANCEL</button></div>
+      <div class="prog" id="pullProg"><i></i></div><div class="progTxt" id="pullTxt"></div>
+    </div></div>
+
+    <div class="step" id="stVoice"><i>3</i><div>
+      <h3>Hearing &amp; voice</h3>
+      <p>Speech recognition (Whisper) and Jarvis's British voice (Kokoro). About 250 MB, downloaded once, then fully offline.</p>
+      <div class="acts" style="margin-top:8px"><button class="btn big" id="voiceBtn">DOWNLOAD</button></div>
+      <div class="prog" id="voiceProg"><i></i></div><div class="progTxt" id="voiceTxt"></div>
+    </div></div>
+
+    <div class="skip"><button id="setupDone">CONTINUE TO JARVIS →</button></div>
+  </div>
+</div>
+
+<div class="app">
+  <header class="top">
+    <div class="logo">J.A.R.V.I.S<small>JUST A RATHER VERY INTELLIGENT SYSTEM</small></div>
+    <nav class="bar">
+      <button class="tb off" id="tbBrain" data-open="settings">BRAIN <b>OFFLINE</b></button>
+      <button class="tb" id="tbGpu" data-open="settings">GPU <b>—</b></button>
+      <span class="tb" id="tbMic">MIC <b>OFF</b></span>
+      <button class="tb" id="tbEar" data-open="settings">EARS <b>—</b></button>
+      <button class="tb" id="tbVoice" data-open="settings">VOICE <b>—</b></button>
+      <span class="sep"></span>
+      <button class="tb" id="tbTimer" data-tab="timers"><span class="ic">◷</span><b id="timerTxt">TIMER</b></button>
+      <button class="tb" data-tab="memory"><span class="ic">✦</span>MEMORY</button>
+      <button class="tb" data-tab="console"><span class="ic">›_</span>CONSOLE</button>
+      <button class="tb" data-tab="log"><span class="ic">≡</span>LOG</button>
+      <button class="tb" data-open="settings"><span class="ic">⚙</span>SETTINGS</button>
+    </nav>
+    <div class="clock"><span id="clock">00:00:00</span><small id="date">—</small></div>
+  </header>
+
+  <main class="grid">
+    <section class="col left">
+      <div class="panel">
+        <div class="ph">Core counters <span>// LIVE</span></div>
+        <div class="counters">
+          <div><b id="cTotal">0</b><i>INTERACTIONS</i></div>
+          <div><b id="cMem">0</b><i>MEMORIES</i></div>
+          <div><b id="cCmds">0</b><i>ACTIONS TAKEN</i></div>
+          <div><b id="cSess">0</b><i>THIS SESSION</i></div>
+        </div>
+      </div>
+      <div class="panel"><div class="ph">Daily check-ins <span>// 24H</span></div><canvas class="spark" id="sparkDay"></canvas></div>
+      <div class="panel"><div class="ph">Network trace <span id="netNow">// — KB/s</span></div><canvas class="spark" id="sparkNet"></canvas></div>
+      <div class="panel">
+        <div class="ph">Memory ledger <span>// RECENT</span></div>
+        <table><thead><tr><th>Memory</th><th>Age</th></tr></thead><tbody id="ledger"></tbody></table>
+      </div>
+      <div class="panel">
+        <div class="ph">Peak statistics <span>// CPU</span></div>
+        <canvas class="spark" id="sparkCpu"></canvas>
+        <dl class="rows" style="margin-top:6px">
+          <dt>CORES</dt><dd id="pCores">—</dd>
+          <dt>CPU</dt><dd id="pCpu">—</dd><div class="meter"><i id="mCpu" style="width:0"></i></div>
+          <dt>RAM</dt><dd id="pRam">—</dd><div class="meter"><i id="mRam" style="width:0"></i></div>
+          <dt>STORAGE</dt><dd id="pDisk">—</dd><div class="meter"><i id="mDisk" style="width:0"></i></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="center">
+      <div class="core" id="core">
+        <canvas id="orb"></canvas>
+        <div class="side" style="left:6%">MIC OPEN</div>
+        <div class="side" style="right:6%">VOX LINK</div>
+        <div class="tip">Click the core to talk</div>
+        <div class="heard" id="heard"></div>
+        <div class="state" id="state">STANDBY</div>
+      </div>
+      <div class="panel msgs">
+        <div class="ph">System messages <span style="display:flex;gap:4px"><button class="chipbtn" id="newSess">NEW SESSION</button><button class="chipbtn" id="stopVoice">STOP</button></span></div>
+        <div class="log" id="log"></div>
+        <div class="inrow">
+          <button class="sq" id="mic" title="Talk (M, or Ctrl+Shift+J from anywhere)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+          <input id="say" placeholder="Message or command…" autocomplete="off">
+          <button class="sq" id="send" title="Send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg></button>
+        </div>
+        <div class="hint">Click the core, press M, or Ctrl+Shift+J from any app — then just talk.</div>
+      </div>
+    </section>
+
+    <section class="col right">
+      <div class="panel">
+        <div class="ph">Operator <span id="opState">// LOCAL</span></div>
+        <dl class="rows">
+          <dt>NAME</dt><dd id="oName">—</dd>
+          <dt>BRAIN</dt><dd id="oBrain">—</dd>
+          <dt>RUNNING ON</dt><dd id="oGpu">—</dd>
+          <dt>HOST</dt><dd id="oHost">—</dd>
+          <dt>SYSTEM</dt><dd id="oSys">—</dd>
+          <dt>UPTIME</dt><dd id="oUp">—</dd>
+        </dl>
+      </div>
+      <div class="panel">
+        <div class="ph">Weather <span id="wPlace">// —</span></div>
+        <div class="big" id="wTemp">—</div>
+        <div class="muted" id="wDesc" style="margin-top:2px">Set a city or use your location</div>
+        <div class="mini"><input id="wCity" placeholder="City (e.g. New York)"></div>
+        <div class="mini"><button class="chipbtn" id="wLoc">USE MY LOCATION</button><button class="chipbtn" id="wSet">SET CITY</button><button class="chipbtn" id="wRef">REFRESH</button></div>
+      </div>
+      <div class="panel"><div class="ph">Activity distribution <span>// MIC · VOICE</span></div><canvas class="spark" id="sparkAct"></canvas></div>
+      <div class="panel">
+        <div class="ph">Market <span>// BTC/USD</span></div>
+        <div class="big" id="btc">—</div>
+        <canvas class="spark" id="sparkBtc" style="height:26px;margin-top:4px"></canvas>
+      </div>
+      <div class="panel">
+        <div class="ph">Relays <span>// SYSTEM</span></div>
+        <div class="relays" id="relays"></div>
+      </div>
+      <div class="panel">
+        <div class="ph">Tasks <span id="taskCount">// 0</span></div>
+        <div id="tasks"></div>
+        <div class="mini"><input id="taskIn" placeholder="Add a task"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="badge"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v11H8l-4 4z"/></svg><span id="badgeName">OPERATOR</span></div>
+<div class="wakepill" id="wakePill" title="Listen all the time and answer when you say “Jarvis”"><i></i>WAKE WORD <span id="wakeTxt">OFF</span></div>
+
+<aside class="drawer" id="drawer">
+  <div class="tabs">
+    <button class="tb" data-pane="console">CONSOLE</button>
+    <button class="tb" data-pane="timers">TIMERS</button>
+    <button class="tb" data-pane="memory">MEMORY</button>
+    <button class="tb" data-pane="log">LOG</button>
+    <button class="tb x" id="closeDrawer">✕</button>
+  </div>
+  <div class="pane" id="pane-console">
+    <div class="protos">
+      <button data-say="system status">SCAN</button>
+      <button data-ps="Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -ne '127.0.0.1' | Select-Object InterfaceAlias,IPAddress | Format-Table -AutoSize">NETWORK</button>
+      <button data-ps="Start-Process explorer">FILES</button>
+      <button data-ps="Start-Process taskmgr">TASK MGR</button>
+      <button data-ps="Start-Process calc">CALC</button>
+      <button data-ps="Start-Process notepad">NOTEPAD</button>
+      <button data-ps="Get-Process | Sort-Object CPU -Descending | Select-Object -First 8 Name,Id,@{n='CPU(s)';e={[math]::Round($_.CPU,1)}} | Format-Table -AutoSize">CPU HOGS</button>
+      <button data-ps="ollama ps">AI STATUS</button>
+    </div>
+    <div class="term" id="term"><span class="d">PowerShell. Commands run on this PC.
+</span></div>
+    <form class="termIn" id="termForm"><b id="cwd">PS&gt;</b><input id="termInput" autocomplete="off" spellcheck="false" placeholder="type a command…"></form>
+  </div>
+  <div class="pane" id="pane-timers">
+    <div class="note">Say “set a 10 minute timer” or “remind me in 20 minutes to stretch”.</div>
+    <div class="mini" style="margin:0"><input id="tMin" placeholder="Minutes" style="flex:0 0 80px"><input id="tLabel" placeholder="Label (optional)"><button class="chipbtn" id="tAdd">START</button></div>
+    <div class="list" id="timerList"></div>
+  </div>
+  <div class="pane" id="pane-memory">
+    <div class="note">Jarvis keeps these in mind in every conversation. Say “remember that my sister is Maya”.</div>
+    <div class="mini" style="margin:0"><input id="memIn" placeholder="Something to remember"><button class="chipbtn" id="memAdd">ADD</button></div>
+    <div class="list" id="memList"></div>
+  </div>
+  <div class="pane" id="pane-log"><div class="list" id="events"></div></div>
+</aside>
+
+<div class="modal" id="modal">
+  <div class="panel">
+    <div class="ph">Settings <span><button class="chipbtn" id="closeModal">✕ CLOSE</button></span></div>
+    <div class="field"><label>YOUR NAME</label><input class="fld" id="nameIn" placeholder="What should Jarvis call you?"></div>
+
+    <div class="field"><label>BRAIN (INSTALLED MODELS)</label><select id="modelSel"></select>
+      <div class="acts"><button class="btn" id="moreModels">GET ANOTHER MODEL</button><button class="btn" id="refreshModels">REFRESH</button></div>
+      <p class="note" id="modelInfo" style="margin-top:6px"></p></div>
+    <div class="field"><label class="chk"><input type="checkbox" id="deep"> DEEP THINKING — smarter on hard questions, slower replies</label></div>
+
+    <div class="field"><label>VOICE</label><select id="voiceSel"></select></div>
+    <div class="field"><label>SPEED <span id="rateV"></span></label><input type="range" id="rate" min="0.7" max="1.4" step="0.05"></div>
+    <div class="field"><button class="btn" id="testVoice">TEST VOICE</button></div>
+
+    <div class="field"><label>HEARING ACCURACY</label><select id="earSel">
+      <option value="whisper-base.en">Standard — Whisper base (fast)</option>
+      <option value="whisper-small.en">High — Whisper small (more accurate, larger)</option>
+    </select></div>
+    <div class="field"><label>MIC SENSITIVITY <span id="sensV"></span></label><input type="range" id="sens" min="0" max="1" step="0.05"></div>
+
+    <div class="field"><label class="chk"><input type="checkbox" id="autoSafe"> RUN READ-ONLY COMMANDS WITHOUT ASKING</label></div>
+    <div class="field"><label class="chk"><input type="checkbox" id="confirm"> ASK BEFORE ANY OTHER COMMAND OR FILE CHANGE</label></div>
+    <div class="field"><label class="chk"><input type="checkbox" id="login"> START JARVIS WITH WINDOWS</label></div>
+    <div class="field"><label class="chk"><input type="checkbox" id="trayChk"> KEEP RUNNING IN THE TRAY WHEN CLOSED</label></div>
+    <div class="field"><label class="chk"><input type="checkbox" id="celsius"> WEATHER IN °C</label></div>
+    <div class="field"><label>UPDATES · VERSION <span id="verTxt">—</span></label>
+      <p class="note" id="updTxt">Jarvis checks for new versions automatically.</p>
+      <div class="acts"><button class="btn" id="updCheck">CHECK NOW</button><button class="btn" id="updInstall" style="display:none">RESTART &amp; UPDATE</button></div></div>
+    <div class="field"><button class="btn" id="rerunSetup">RUN SETUP AGAIN</button></div>
+    <p class="note">Everything — brain, hearing, voice, memories — stays on this PC. Jarvis only goes online to search the web, read pages you ask about, and fetch weather.<br><br>Press <b style="color:var(--acc2)">Ctrl+Shift+J</b> from any app to summon Jarvis and talk. <b>Turning off “ask before” lets Jarvis change things on your PC without checking with you.</b></p>
+  </div>
+</div>
+
+<script src="ui.js"></script>
+<script type="module" src="voice.js"></script>
+</body>
+</html>

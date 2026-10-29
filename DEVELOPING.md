@@ -1,0 +1,19 @@
+# Developing Jarvis
+
+## Layout
+- `app/main.js` – Electron main process: window, tray, hotkey, Ollama client (chat/pull streaming), PowerShell runner, file tools, web search/read (DuckDuckGo, Bing fallback via hidden window), system stats, auto-updater.
+- `app/preload.js` – the `window.jarvis` API exposed to the page.
+- `app/renderer/index.html`, `style.css` – the HUD.
+- `src/ui.js` – renderer logic: agent loop with tool calling, quick commands, setup wizard, HUD panels. `src/scene_orb.js` (background + core drawing) is spliced in by the build.
+- `src/voice.js` – Whisper hearing + Kokoro voice + mic VAD, bundled by esbuild.
+- `scripts/build.js` – produces `app/renderer/ui.js`, `voice.js` and `ort/` (all git-ignored).
+
+## Releasing an update
+1. Make the change.
+2. Bump `version` in `package.json` (e.g. 1.1.0 → 1.2.0).
+3. Replace `build/release-notes.md` with a short list of what changed (shown to the user inside Jarvis).
+4. Commit, then tag and push: `git tag v1.2.0 && git push origin main --tags`.
+5. GitHub Actions (`.github/workflows/release.yml`) builds `Jarvis-Setup-1.2.0.exe` on Windows and publishes the release.
+   Installed copies check on launch and every 3 hours, download in the background, and install on restart.
+
+The tag must match the package.json version. User data (memories, settings, voice models) lives in `%APPDATA%\Jarvis` and survives updates.
