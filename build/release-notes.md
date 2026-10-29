@@ -1,4 +1,4 @@
-- Jarvis can now use any open app, even behind other windows or while you're in a game: he reads its buttons, menus and text, clicks things and types into boxes for you.
-- He can look at your screen (or one window) when a task needs it. Pictures are kept in memory for a moment and never saved. Turn it off any time in Settings.
-- Game mode: when a fullscreen game is running, Jarvis frees your graphics card so your game runs smoothly. His brain reloads by itself when you ask something.
-- Music and volume commands work from inside games without switching windows.
+- Just say "Hey Jarvis". A dedicated wake-word detector now listens all the time, including in games and while Jarvis is in the tray, and uses almost no processing power.
+- Say it all in one go ("Hey Jarvis, pause the music") or say "Hey Jarvis", wait for "Yes, sir?", then ask.
+- On by default. Toggle it with the HEY JARVIS button (bottom right) or from the tray icon. Adjust how easily it triggers with Settings → Mic & "Hey Jarvis" sensitivity.
+- Nothing you say leaves your PC.
