@@ -201,6 +201,7 @@ function Get-Vol { try { return @{ volume = [int][Math]::Round([Jarvis.Audio]::V
 
 [void][Jarvis.Input]::SetProcessDPIAware()
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+try { Add-Type -AssemblyName UIAutomationClientsideProviders } catch {}   # identifies classic Win32/WinForms controls properly
 $UIA = [System.Windows.Automation.AutomationElement]
 $script:uiEls = New-Object System.Collections.ArrayList
 $script:uiWin = $null
@@ -229,11 +230,13 @@ function Read-UI([string]$target, [int]$max = 160) {
     try { $c = $el.Current } catch { continue }
     $type = ($c.ControlType.ProgrammaticName -replace '^ControlType\.', '')
     $name = ($c.Name -replace '\s+', ' ').Trim(); if ($name.Length -gt 120) { $name = $name.Substring(0, 120) + '…' }
+    $aid = [string]$c.AutomationId
     $val = $null; if ($type -match '^(Edit|Document|ComboBox|Slider|ProgressBar)$') { $val = Get-Val $el }
-    $useful = ($d -gt 0) -and (($name -and $type -notmatch '^(Pane|Group|Custom|Window|TitleBar|ScrollBar|Thumb|Separator|Image)$') -or ($type -match '^(Edit|Document)$') -or ($type -match $CLICKABLE -and $name))
+    $useful = ($d -gt 0) -and (($name -and $type -notmatch '^(Window|TitleBar|ScrollBar|Thumb|Separator)$') -or ($type -match '^(Edit|Document)$'))
     if ($useful) {
       [void]$script:uiEls.Add($el)
       $it = [ordered]@{ n = $script:uiEls.Count; type = $type; name = $name }
+      if (-not $name -and $aid -and $aid -notmatch '^\d+$') { $it.id = $aid }
       if ($val) { $it.value = $val }
       if (-not $c.IsEnabled) { $it.disabled = $true }
       [void]$items.Add($it)
@@ -253,7 +256,8 @@ function Find-UI([string]$target, $element) {
   $want = $s.ToLower().Trim(); $partial = $null; $sw = [Diagnostics.Stopwatch]::StartNew()
   while ($q.Count -gt 0 -and $sw.ElapsedMilliseconds -lt 5000) {
     $el = $q.Dequeue()
-    try { $c = $el.Current; $n = ([string]$c.Name).ToLower().Trim(); $t = $c.ControlType.ProgrammaticName } catch { continue }
+    try { $c = $el.Current; $n = ([string]$c.Name).ToLower().Trim(); $t = $c.ControlType.ProgrammaticName; $ai = ([string]$c.AutomationId).ToLower() } catch { continue }
+    if ($ai -and $ai -eq $want) { return $el }
     if ($n) {
       if ($n -eq $want -and $t -match $CLICKABLE) { return $el }
       if (-not $partial -and $n.Contains($want)) { $partial = $el }
@@ -387,7 +391,8 @@ if ($SelfTest) {
     $byName = $UIA::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, (New-Object System.Windows.Automation.PropertyCondition($UIA::NameProperty, 'JarvisTestWindow'))); Write-Output ("via root: " + $(if ($byName) { ($byName.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)).Count } else { 'not found' }))
     Write-Output ("apartment: " + [Threading.Thread]::CurrentThread.GetApartmentState() + " elevated: " + ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) + " session: " + (Get-Process -Id $PID).SessionId + " test session: " + (Get-Process -Id $tp.Id).SessionId)
     $ui = Read-UI 'JarvisTestWindow' 60; Write-Output ("test window elements: " + (($ui.elements | ForEach-Object { "[$($_.n)] $($_.type) '$($_.name)'" }) -join '; '))
-    $st = Set-UIText 'JarvisTestWindow' 'Message box' 'hello' $false; Write-Output ("set text: " + ($st | ConvertTo-Json -Compress))
+    $boxRef = ($ui.elements | Where-Object { $_.type -eq 'Edit' } | Select-Object -First 1).n; if (-not $boxRef) { $boxRef = 'box' }
+    $st = Set-UIText 'JarvisTestWindow' $boxRef 'hello' $false; Write-Output ("set text: " + ($st | ConvertTo-Json -Compress))
     $c = Click-UI 'JarvisTestWindow' 'Press me' $false; Write-Output ("click: " + ($c | ConvertTo-Json -Compress))
     Start-Sleep -Milliseconds 800
     $after = (Get-Windows | Where-Object { $_.title -like 'JarvisTestWindow*' } | Select-Object -First 1).title; Write-Output "title after click: $after"
