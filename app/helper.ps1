@@ -66,6 +66,20 @@ namespace Jarvis {
     public static void Down(byte vk) { keybd_event(vk, 0, IsExt(vk) ? 1u : 0u, UIntPtr.Zero); }
     public static void Up(byte vk) { keybd_event(vk, 0, (IsExt(vk) ? 1u : 0u) | 2u, UIntPtr.Zero); }
     public static void Tap(byte vk) { Down(vk); Up(vk); }
+    [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] static extern void mouse_event(uint flags, int dx, int dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [StructLayout(LayoutKind.Sequential)] struct POINT { public int X; public int Y; }
+    public static void Click(int x, int y, bool right) {
+      POINT old; GetCursorPos(out old);
+      SetCursorPos(x, y);
+      System.Threading.Thread.Sleep(30);
+      mouse_event(right ? 0x0008u : 0x0002u, 0, 0, 0, UIntPtr.Zero);
+      mouse_event(right ? 0x0010u : 0x0004u, 0, 0, 0, UIntPtr.Zero);
+      System.Threading.Thread.Sleep(30);
+      SetCursorPos(old.X, old.Y);
+    }
     public static void Combo(byte[] vks) {
       foreach (var v in vks) Down(v);
       for (int i = vks.Length - 1; i >= 0; i--) Up(vks[i]);
@@ -124,6 +138,21 @@ namespace Jarvis {
     }
     public static void Show(long handle, int cmd) { ShowWindow(new IntPtr(handle), cmd); }
     public static void Close(long handle) { PostMessage(new IntPtr(handle), 0x0010, IntPtr.Zero, IntPtr.Zero); }
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr m, ref MONITORINFO mi);
+    [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
+    [DllImport("user32.dll")] static extern IntPtr GetDesktopWindow();
+    public static bool IsFullscreen(long handle) {
+      var h = new IntPtr(handle);
+      if (h == IntPtr.Zero || h == GetShellWindow() || h == GetDesktopWindow()) return false;
+      RECT r; if (!GetWindowRect(h, out r)) return false;
+      var mi = new MONITORINFO(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+      if (!GetMonitorInfo(MonitorFromWindow(h, 2), ref mi)) return false;
+      return r.Left <= mi.rcMonitor.Left && r.Top <= mi.rcMonitor.Top && r.Right >= mi.rcMonitor.Right && r.Bottom >= mi.rcMonitor.Bottom;
+    }
   }
 }
 '@
@@ -169,6 +198,113 @@ function Get-NowPlaying {
   return @{ app = $null; playing = $null; title = $null }
 }
 function Get-Vol { try { return @{ volume = [int][Math]::Round([Jarvis.Audio]::Volume * 100); muted = [Jarvis.Audio]::Mute } } catch { return @{ volume = $null; muted = $null } } }
+
+[void][Jarvis.Input]::SetProcessDPIAware()
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+$UIA = [System.Windows.Automation.AutomationElement]
+$script:uiEls = New-Object System.Collections.ArrayList
+$script:uiWin = $null
+$CLICKABLE = 'Button|MenuItem|Hyperlink|ListItem|TabItem|CheckBox|RadioButton|ComboBox|TreeItem|SplitButton|DataItem'
+
+function Get-Root([string]$target) {
+  if (-not $target) { $h = [Jarvis.Win]::Foreground(); return @{ el = $UIA::FromHandle([IntPtr]$h); title = ''; app = '' } }
+  $w = Find-Window $target
+  if (-not $w) { throw "No open window matches '$target'." }
+  return @{ el = $UIA::FromHandle([IntPtr]$w.handle); title = $w.title; app = $w.app; handle = $w.handle; minimized = $w.minimized }
+}
+function Get-Val($el) {
+  try { $vp = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); $v = $vp.Current.Value; if ($v) { return $v.Substring(0, [Math]::Min(200, $v.Length)) } } catch {}
+  return $null
+}
+# Walks a window's accessibility tree (works for windows behind others) and numbers the useful elements.
+function Read-UI([string]$target, [int]$max = 160) {
+  $root = Get-Root $target
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $q = New-Object System.Collections.Queue; $q.Enqueue(@($root.el, 0))
+  $script:uiEls = New-Object System.Collections.ArrayList; $script:uiWin = $target
+  $items = New-Object System.Collections.ArrayList
+  $sw = [Diagnostics.Stopwatch]::StartNew(); $seen = 0
+  while ($q.Count -gt 0 -and $items.Count -lt $max -and $sw.ElapsedMilliseconds -lt 5000) {
+    $pair = $q.Dequeue(); $el = $pair[0]; $d = $pair[1]; $seen++
+    try { $c = $el.Current } catch { continue }
+    $type = ($c.ControlType.ProgrammaticName -replace '^ControlType\.', '')
+    $name = ($c.Name -replace '\s+', ' ').Trim(); if ($name.Length -gt 120) { $name = $name.Substring(0, 120) + '…' }
+    $val = $null; if ($type -match '^(Edit|Document|ComboBox|Slider|ProgressBar)$') { $val = Get-Val $el }
+    $useful = ($d -gt 0) -and (($name -and $type -notmatch '^(Pane|Group|Custom|Window|TitleBar|ScrollBar|Thumb|Separator|Image)$') -or ($type -match '^(Edit|Document)$') -or ($type -match $CLICKABLE -and $name))
+    if ($useful) {
+      [void]$script:uiEls.Add($el)
+      $it = [ordered]@{ n = $script:uiEls.Count; type = $type; name = $name }
+      if ($val) { $it.value = $val }
+      if (-not $c.IsEnabled) { $it.disabled = $true }
+      [void]$items.Add($it)
+    }
+    if ($d -lt 30) {
+      try { $ch = $walker.GetFirstChild($el); while ($ch) { $q.Enqueue(@($ch, $d + 1)); $ch = $walker.GetNextSibling($ch) } } catch {}
+    }
+  }
+  return @{ window = $root.title; app = $root.app; minimized = $root.minimized; elements = @($items); truncated = ($q.Count -gt 0) }
+}
+function Find-UI([string]$target, $element) {
+  $s = [string]$element
+  if ($s -match '^\d+$' -and $script:uiWin -eq $target -and [int]$s -ge 1 -and [int]$s -le $script:uiEls.Count) { return $script:uiEls[[int]$s - 1] }
+  $root = Get-Root $target
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $q = New-Object System.Collections.Queue; $q.Enqueue($root.el)
+  $want = $s.ToLower().Trim(); $partial = $null; $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($q.Count -gt 0 -and $sw.ElapsedMilliseconds -lt 5000) {
+    $el = $q.Dequeue()
+    try { $c = $el.Current; $n = ([string]$c.Name).ToLower().Trim(); $t = $c.ControlType.ProgrammaticName } catch { continue }
+    if ($n) {
+      if ($n -eq $want -and $t -match $CLICKABLE) { return $el }
+      if (-not $partial -and $n.Contains($want)) { $partial = $el }
+    }
+    try { $ch = $walker.GetFirstChild($el); while ($ch) { $q.Enqueue($ch); $ch = $walker.GetNextSibling($ch) } } catch {}
+  }
+  if ($partial) { return $partial }
+  throw "Couldn't find '$s' in that window. Read the window again to see what's there."
+}
+function Click-UI([string]$target, $element, [bool]$right) {
+  $el = Find-UI $target $element
+  $name = ''; try { $name = $el.Current.Name } catch {}
+  if (-not $right) {
+    foreach ($pt in @([System.Windows.Automation.InvokePattern]::Pattern, [System.Windows.Automation.TogglePattern]::Pattern, [System.Windows.Automation.SelectionItemPattern]::Pattern, [System.Windows.Automation.ExpandCollapsePattern]::Pattern)) {
+      $p = $null; try { $p = $el.GetCurrentPattern($pt) } catch {}
+      if ($p) {
+        try {
+          if ($p -is [System.Windows.Automation.InvokePattern]) { $p.Invoke() }
+          elseif ($p -is [System.Windows.Automation.TogglePattern]) { $p.Toggle() }
+          elseif ($p -is [System.Windows.Automation.SelectionItemPattern]) { $p.Select() }
+          else { if ($p.Current.ExpandCollapseState -eq 'Expanded') { $p.Collapse() } else { $p.Expand() } }
+          return @{ clicked = $name; how = 'direct' }
+        } catch {}
+      }
+    }
+  }
+  # fall back to a real mouse click: bring the window forward and click the middle of the element
+  if ($target) { $w = Find-Window $target; if ($w) { [void][Jarvis.Win]::Focus($w.handle); Start-Sleep -Milliseconds 300 } }
+  $r = $el.Current.BoundingRectangle
+  if ($r.IsEmpty -or $r.Width -le 0) { throw "'$name' isn't visible on screen, so it can't be clicked." }
+  [Jarvis.Input]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2), $right)
+  return @{ clicked = $name; how = 'mouse' }
+}
+function Set-UIText([string]$target, $element, [string]$text, [bool]$enter) {
+  $el = Find-UI $target $element
+  $done = $false
+  try { $vp = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); $vp.SetValue($text); $done = $true } catch {}
+  if (-not $done -or $enter) {
+    if ($target) { $w = Find-Window $target; if ($w) { [void][Jarvis.Win]::Focus($w.handle); Start-Sleep -Milliseconds 250 } }
+    try { $el.SetFocus() } catch {}
+    Start-Sleep -Milliseconds 120
+    if (-not $done) { [Jarvis.Input]::Combo([byte[]]@(0x11, 0x41)); [void][Jarvis.Input]::Type($text) }
+    if ($enter) { Start-Sleep -Milliseconds 60; [Jarvis.Input]::Tap(0x0D) }
+  }
+  return @{ set = $text.Length }
+}
+function Get-Foreground {
+  $h = [Jarvis.Win]::Foreground()
+  $w = Get-Windows | Where-Object { $_.handle -eq $h } | Select-Object -First 1
+  return @{ app = $w.app; title = $w.title; fullscreen = [Jarvis.Win]::IsFullscreen($h) }
+}
 
 function Invoke-Command1($m) {
   switch ($m.cmd) {
@@ -225,6 +361,10 @@ function Invoke-Command1($m) {
       if ($m.enter) { Start-Sleep -Milliseconds 60; [Jarvis.Input]::Tap(0x0D) }
       return @{ typed = ([string]$m.text).Length }
     }
+    'uiRead' { return (Read-UI ([string]$m.target) ([int]$(if ($m.max) { $m.max } else { 160 }))) }
+    'uiClick' { return (Click-UI ([string]$m.target) $m.element ([bool]$m.right)) }
+    'uiSetText' { return (Set-UIText ([string]$m.target) $m.element ([string]$m.text) ([bool]$m.enter)) }
+    'foreground' { return (Get-Foreground) }
     default { throw "Unknown command: $($m.cmd)" }
   }
 }
@@ -236,6 +376,13 @@ if ($SelfTest) {
   Write-Output ("now playing: " + ((Get-NowPlaying) | ConvertTo-Json -Compress))
   Write-Output ("keys parse: " + ((@('ctrl', 'shift', 's', 'f5', 'enter', 'win') | ForEach-Object { Get-Vk $_ }) -join ','))
   $r = Invoke-Command1 ([pscustomobject]@{ cmd = 'ping' }); Write-Output ("ping: " + ($r | ConvertTo-Json -Compress))
+  Write-Output ("foreground: " + ((Get-Foreground) | ConvertTo-Json -Compress))
+  $np = Start-Process notepad -PassThru; Start-Sleep -Seconds 2
+  $ui = Read-UI 'notepad' 60; Write-Output ("notepad elements: " + $ui.elements.Count + " -> " + (($ui.elements | Select-Object -First 8 | ForEach-Object { "[$($_.n)] $($_.type) '$($_.name)'" }) -join '; '))
+  $edit = $ui.elements | Where-Object { $_.type -match 'Edit|Document' } | Select-Object -First 1
+  if ($edit) { $st = Set-UIText 'notepad' $edit.n 'hello from jarvis' $false; $ui2 = Read-UI 'notepad' 60; $v = ($ui2.elements | Where-Object { $_.type -match 'Edit|Document' } | Select-Object -First 1).value; Write-Output "set text -> '$v'" }
+  try { $c = Click-UI 'notepad' 'File' $false; Write-Output ("click File: " + ($c | ConvertTo-Json -Compress)) } catch { Write-Output "click File failed: $($_.Exception.Message)" }
+  Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue
   Write-Output 'SELFTEST OK'
   exit 0
 }
