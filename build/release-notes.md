@@ -1,4 +1,5 @@
-- Much smoother: hearing and voice now run in the background, so the window no longer freezes while Jarvis listens or talks.
-- Lighter animation: fewer frames while Jarvis is thinking or in the background, and no live glass blur by default.
-- New: Settings → Visual quality (Balanced, Full, Low).
-- The Log now notes any moment the window stalls, to help track down problems.
+- Jarvis can now control your PC: pause, play and skip music (Spotify, YouTube, any player), set or change the volume, tell you what song is playing, switch between / minimize / close windows, press keyboard shortcuts and type into apps.
+- Instant music commands, no AI wait: "pause", "next song", "volume 40", "mute", "what song is this".
+- Music is turned down automatically while you're talking to him (Settings to turn off).
+- Jarvis now keeps running in the background when you close the window. Find him in the system tray, where you can also turn on "Listen for Jarvis". Ctrl+Shift+J talks to him without popping the window up.
+- "Start with Windows" now starts him quietly in the background.
