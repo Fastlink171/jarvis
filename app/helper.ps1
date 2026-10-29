@@ -239,7 +239,7 @@ function Read-UI([string]$target, [int]$max = 160) {
       [void]$items.Add($it)
     }
     if ($d -lt 30) {
-      try { $ch = $walker.GetFirstChild($el); while ($ch) { $q.Enqueue(@($ch, $d + 1)); $ch = $walker.GetNextSibling($ch) } } catch {}
+      try { $ch = $walker.GetFirstChild($el); while ($ch) { $q.Enqueue(@($ch, ($d + 1))); $ch = $walker.GetNextSibling($ch) } } catch {}
     }
   }
   return @{ window = $root.title; app = $root.app; minimized = $root.minimized; elements = @($items); truncated = ($q.Count -gt 0) }
@@ -383,6 +383,7 @@ if ($SelfTest) {
   try { $rt = Get-Root 'notepad'; $rc = $rt.el.Current; Write-Output ("root: '" + $rc.Name + "' " + $rc.ControlType.ProgrammaticName + " class=" + $rc.ClassName)
         $kids = $rt.el.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition); Write-Output ("raw children: " + $kids.Count + " -> " + (($kids | Select-Object -First 6 | ForEach-Object { $_.Current.ControlType.ProgrammaticName + ":" + $_.Current.Name }) -join ', '))
         $fc = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetFirstChild($rt.el); Write-Output ("walker first child: " + $(if ($fc) { $fc.Current.Name + ' ' + $fc.Current.ControlType.ProgrammaticName } else { 'null' })) } catch { Write-Output "root failed: $($_.Exception.Message)" }
+  try { $rt2 = Get-Root 'notepad'; $all = $rt2.el.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition); Write-Output ("descendants: " + $all.Count + " -> " + (($all | Select-Object -First 25 | ForEach-Object { ($_.Current.ControlType.ProgrammaticName -replace 'ControlType\.','') + ":" + $_.Current.Name }) -join ', ')) } catch { Write-Output "desc failed: $($_.Exception.Message)" }
   $ui = Read-UI 'notepad' 60; Write-Output ("notepad elements: " + $ui.elements.Count + " -> " + (($ui.elements | Select-Object -First 8 | ForEach-Object { "[$($_.n)] $($_.type) '$($_.name)'" }) -join '; '))
   $edit = $ui.elements | Where-Object { $_.type -match 'Edit|Document' } | Select-Object -First 1
   if ($edit) { $st = Set-UIText 'notepad' $edit.n 'hello from jarvis' $false; $ui2 = Read-UI 'notepad' 60; $v = ($ui2.elements | Where-Object { $_.type -match 'Edit|Document' } | Select-Object -First 1).value; Write-Output "set text -> '$v'" }
