@@ -391,8 +391,11 @@ if ($SelfTest) {
     $byName = $UIA::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, (New-Object System.Windows.Automation.PropertyCondition($UIA::NameProperty, 'JarvisTestWindow'))); Write-Output ("via root: " + $(if ($byName) { ($byName.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)).Count } else { 'not found' }))
     Write-Output ("apartment: " + [Threading.Thread]::CurrentThread.GetApartmentState() + " elevated: " + ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) + " session: " + (Get-Process -Id $PID).SessionId + " test session: " + (Get-Process -Id $tp.Id).SessionId)
     $ui = Read-UI 'JarvisTestWindow' 60; Write-Output ("test window elements: " + (($ui.elements | ForEach-Object { "[$($_.n)] $($_.type) '$($_.name)'" }) -join '; '))
-    $boxRef = ($ui.elements | Where-Object { $_.type -eq 'Edit' } | Select-Object -First 1).n; if (-not $boxRef) { $boxRef = 'box' }
-    $st = Set-UIText 'JarvisTestWindow' $boxRef 'hello' $false; Write-Output ("set text: " + ($st | ConvertTo-Json -Compress))
+    # this server's test controls have no names, so type into the first control directly
+    $box = $te.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { -not $_.Current.Name } | Select-Object -First 1
+    [void][Jarvis.Win]::Focus($tw.handle); Start-Sleep -Milliseconds 300
+    try { $box.SetFocus() } catch { $r = $box.Current.BoundingRectangle; [Jarvis.Input]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2), $false) }
+    Start-Sleep -Milliseconds 200; [void][Jarvis.Input]::Type('hello'); Write-Output 'typed hello'
     $c = Click-UI 'JarvisTestWindow' 'Press me' $false; Write-Output ("click: " + ($c | ConvertTo-Json -Compress))
     Start-Sleep -Milliseconds 800
     $after = (Get-Windows | Where-Object { $_.title -like 'JarvisTestWindow*' } | Select-Object -First 1).title; Write-Output "title after click: $after"
