@@ -298,7 +298,8 @@ function Invoke-MediaSession([string]$action, [string]$app) {
 function Get-RunningApps {
   $win = @{}; Get-Windows | ForEach-Object { if ($_.app) { if (-not $win[$_.app]) { $win[$_.app] = @() }; $win[$_.app] += $_.title } }
   $sys = '^(svchost|System|Idle|Registry|smss|csrss|wininit|winlogon|services|lsass|lsaiso|fontdrvhost|dwm|sihost|taskhostw|ctfmon|conhost|RuntimeBroker|SearchHost|SearchIndexer|StartMenuExperienceHost|ShellExperienceHost|TextInputHost|dllhost|WmiPrvSE|spoolsv|SecurityHealthService|SecurityHealthSystray|MsMpEng|NisSrv|audiodg|WUDFHost|SgrmBroker|MemCompression|backgroundTaskHost|smartscreen|ApplicationFrameHost|SystemSettingsBroker|UserOOBEBroker|LockApp|Widgets|WidgetService|PhoneExperienceHost|CompPkgSrv|MoUsoCoreWorker|TiWorker|TrustedInstaller|wlanext|unsecapp|dasHost|AggregatorHost|SearchProtocolHost|SearchFilterHost|crashpad_handler|msedgewebview2|Jarvis|powershell|pwsh|OpenConsole|WindowsTerminal|explorer)$'
-  $groups = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -notmatch $sys -and $_.Id -ne $PID } | Group-Object ProcessName
+  $mySession = (Get-Process -Id $PID).SessionId
+  $groups = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $mySession -and $_.ProcessName -notmatch $sys -and $_.Id -ne $PID } | Group-Object ProcessName
   $apps = foreach ($g in $groups) {
     $p = $g.Group[0]
     $desc = $null; try { $desc = $p.MainModule.FileVersionInfo.FileDescription } catch {}
@@ -521,6 +522,28 @@ if ($SelfTest) {
   if ($script:smtcError) { Write-Output "MEDIA SESSIONS FAILED to load: $($script:smtcError)"; $script:uiFail = $true }
   try { $ms = @(Get-MediaSessions); Write-Output ("media sessions: " + $ms.Count + " " + (($ms | ForEach-Object { "$($_.app)=$($_.status)" }) -join ', ')) } catch { Write-Output "MEDIA SESSIONS FAILED: $($_.Exception.Message)"; $script:uiFail = $true }
   try { $r = Invoke-MediaSession 'pause' ''; Write-Output ("pause with nothing playing: " + ($r | ConvertTo-Json -Compress -Depth 3)) } catch { Write-Output "MEDIA CONTROL FAILED: $($_.Exception.Message)"; $script:uiFail = $true }
+  # real media test: play a tone in Edge, then pause and resume it through Windows media sessions
+  try {
+    $dir = Join-Path $env:TEMP ('jarvis-media-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $dir | Out-Null
+    $sr = 22050; $n = $sr * 60; $ms = New-Object IO.MemoryStream; $bw = New-Object IO.BinaryWriter($ms)
+    $bw.Write([Text.Encoding]::ASCII.GetBytes('RIFF')); $bw.Write([int](36 + $n * 2)); $bw.Write([Text.Encoding]::ASCII.GetBytes('WAVEfmt ')); $bw.Write([int]16); $bw.Write([int16]1); $bw.Write([int16]1); $bw.Write([int]$sr); $bw.Write([int]($sr * 2)); $bw.Write([int16]2); $bw.Write([int16]16); $bw.Write([Text.Encoding]::ASCII.GetBytes('data')); $bw.Write([int]($n * 2))
+    for ($i = 0; $i -lt $n; $i++) { $bw.Write([int16](3000 * [Math]::Sin(2 * [Math]::PI * 440 * $i / $sr))) }
+    [IO.File]::WriteAllBytes((Join-Path $dir 'tone.wav'), $ms.ToArray())
+    Set-Content (Join-Path $dir 'play.html') '<html><head><title>JarvisToneTest</title></head><body><audio id=a src="tone.wav" autoplay loop controls></audio></body></html>'
+    $edge = Get-ChildItem 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe', 'C:\Program Files\Microsoft\Edge\Application\msedge.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($edge) {
+      $ep = Start-Process $edge.FullName -ArgumentList '--no-first-run', '--autoplay-policy=no-user-gesture-required', "--user-data-dir=$dir\profile", "file:///$($dir -replace '\\','/')/play.html" -PassThru
+      $found = $null; for ($k = 0; $k -lt 20 -and -not $found; $k++) { Start-Sleep -Seconds 1; $found = @(Get-MediaSessions) | Where-Object { $_.status -eq 'Playing' } | Select-Object -First 1 }
+      if ($found) {
+        Write-Output ("media test: found $($found.app) playing '$($found.title)'")
+        $r1 = Invoke-MediaSession 'pause' ''; Start-Sleep -Milliseconds 800; $st1 = (@(Get-MediaSessions) | Where-Object { $_.id -eq $found.id }).status
+        $r2 = Invoke-MediaSession 'play' ''; Start-Sleep -Milliseconds 800; $st2 = (@(Get-MediaSessions) | Where-Object { $_.id -eq $found.id }).status
+        Write-Output "media test: after pause -> $st1 ; after play -> $st2 ; pause said $($r1.apps -join ',')"
+        if ($st1 -eq 'Paused' -and $st2 -eq 'Playing') { Write-Output 'MEDIA OK' } else { Write-Output 'MEDIA FAILED'; $script:uiFail = $true }
+      } else { Write-Output 'media test: Edge never registered a media session (skipped)' }
+      Stop-Process -Id $ep.Id -Force -ErrorAction SilentlyContinue; Get-Process msedge -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -gt (Get-Date).AddMinutes(-3) } | Stop-Process -Force -ErrorAction SilentlyContinue
+    } else { Write-Output 'media test: Edge not found (skipped)' }
+  } catch { Write-Output "media test error: $($_.Exception.Message)" }
   try { $ra = @(Get-RunningApps); Write-Output ("running apps: " + $ra.Count + " -> " + (($ra | Select-Object -First 12 | ForEach-Object { "$($_.name)$(if ($_.background) { ' (bg)' })" }) -join ', ')) } catch { Write-Output "APPS FAILED: $($_.Exception.Message)"; $script:uiFail = $true }
   # open a small test window (button + text box) in another process, then drive it through accessibility
   $form = 'Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form; $f.Text = ''JarvisTestWindow''; $f.Width = 400; $f.Height = 200; $t = New-Object Windows.Forms.TextBox; $t.Name = ''box''; $t.AccessibleName = ''Message box''; $t.Top = 10; $t.Left = 10; $t.Width = 300; $b = New-Object Windows.Forms.Button; $b.Text = ''Press me''; $b.Top = 50; $b.Left = 10; $b.Width = 120; $b.Add_Click({ $f.Text = ''JarvisTestWindow pressed '' + $t.Text }); $f.Controls.Add($t); $f.Controls.Add($b); [void]$f.ShowDialog()'
