@@ -197,6 +197,123 @@ function Get-NowPlaying {
   if ($yt) { return @{ app = 'YouTube'; playing = $null; title = ($yt.title -replace ' - YouTube.*$', '') } }
   return @{ app = $null; playing = $null; title = $null }
 }
+# ---- Windows media sessions (every app that's playing or paused: Spotify, each browser tab, etc.)
+$script:smtc = $null
+try {
+  Add-Type -AssemblyName System.Runtime.WindowsRuntime
+  $script:asTaskOp = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+  [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime]
+  [void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType = WindowsRuntime]
+} catch { $script:smtcError = $_.Exception.Message }
+function Await($op, [Type]$type) {
+  $t = $script:asTaskOp.MakeGenericMethod($type).Invoke($null, @($op))
+  if (-not $t.Wait(4000)) { throw 'Windows media controls did not answer.' }
+  return $t.Result
+}
+function Get-SmtcManager {
+  if (-not $script:smtc) { $script:smtc = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]) }
+  return $script:smtc
+}
+$MUSIC_APPS = 'spotify|music|itunes|tidal|deezer|amazon|soundcloud|foobar|winamp|musicbee|aimp|vlc|groove|zune|youtube ?music'
+function Get-FriendlyApp([string]$aumid) {
+  $a = $aumid.ToLower()
+  if ($a -match 'spotify') { return 'Spotify' }
+  if ($a -match 'chrome') { return 'Chrome' }
+  if ($a -match 'msedge|microsoftedge') { return 'Edge' }
+  if ($a -match 'firefox') { return 'Firefox' }
+  if ($a -match 'opera') { return 'Opera' }
+  if ($a -match 'brave') { return 'Brave' }
+  if ($a -match 'vlc') { return 'VLC' }
+  if ($a -match 'zunemusic|media\.player|zunevideo') { return 'Media Player' }
+  if ($a -match 'applemusic|itunes') { return 'Apple Music' }
+  if ($a -match 'discord') { return 'Discord' }
+  return (($aumid -split '[!\\]')[-1] -replace '\.exe$', '' -replace '_\w{13}$', '')
+}
+function Get-MediaSessions {
+  $mgr = Get-SmtcManager
+  $cur = $mgr.GetCurrentSession(); $curId = if ($cur) { $cur.SourceAppUserModelId } else { '' }
+  $out = @()
+  foreach ($sess in $mgr.GetSessions()) {
+    $info = $sess.GetPlaybackInfo()
+    $title = $null; $artist = $null
+    try { $p = Await ($sess.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties]); $title = $p.Title; $artist = $p.Artist } catch {}
+    $app = Get-FriendlyApp $sess.SourceAppUserModelId
+    $out += [pscustomobject]@{ app = $app; id = $sess.SourceAppUserModelId; status = [string]$info.PlaybackStatus; title = $title; artist = $artist; music = ($app -match $MUSIC_APPS -or $sess.SourceAppUserModelId -match $MUSIC_APPS); current = ($sess.SourceAppUserModelId -eq $curId); session = $sess }
+  }
+  return $out
+}
+$script:lastPaused = @()
+# Picks which player(s) to control. $want: an app name ("spotify", "chrome"), "music", "video", or empty.
+function Select-Sessions($all, [string]$action, [string]$want) {
+  $want = ([string]$want).ToLower().Trim()
+  $pool = $all
+  if ($want -eq 'music') { $m = @($all | Where-Object { $_.music }); if ($m.Count) { $pool = $m } }
+  elseif ($want -eq 'video') { $m = @($all | Where-Object { -not $_.music }); if ($m.Count) { $pool = $m } }
+  elseif ($want) {
+    $pool = @($all | Where-Object { $_.app.ToLower().Contains($want) -or $_.id.ToLower().Contains($want) -or ($_.title -and $_.title.ToLower().Contains($want)) })
+    if (-not $pool.Count) { return @() }
+  }
+  $playing = @($pool | Where-Object { $_.status -eq 'Playing' })
+  switch ($action) {
+    'pause' { if ($playing.Count) { return $playing } ; return @() }
+    'play' {
+      $paused = @($pool | Where-Object { $_.status -ne 'Playing' })
+      if (-not $paused.Count) { return @() }
+      if (-not $want) {
+        $again = @($paused | Where-Object { $script:lastPaused -contains $_.id }); if ($again.Count) { return @($again[0]) }
+        $mus = @($paused | Where-Object { $_.music }); if ($mus.Count) { return @($mus[0]) }
+      }
+      $c = @($paused | Where-Object { $_.current }); if ($c.Count) { return @($c[0]) }
+      return @($paused[0])
+    }
+    default {
+      if ($playing.Count) { return @($playing | Sort-Object { -not $_.music } | Select-Object -First 1) }
+      $mus = @($pool | Where-Object { $_.music }); if ($mus.Count -and -not $want) { return @($mus[0]) }
+      $c = @($pool | Where-Object { $_.current }); if ($c.Count) { return @($c[0]) }
+      return @($pool | Select-Object -First 1)
+    }
+  }
+}
+function Invoke-MediaSession([string]$action, [string]$app) {
+  $all = @(Get-MediaSessions)
+  if ($action -eq 'play_pause') { $action = if (@($all | Where-Object { $_.status -eq 'Playing' -and (-not $app -or $_.app.ToLower().Contains($app.ToLower())) }).Count) { 'pause' } else { 'play' } }
+  $targets = @(Select-Sessions $all $action $app)
+  if (-not $targets.Count) {
+    $what = if ($app) { $app } else { 'anything' }
+    if ($action -eq 'pause') { return @{ done = $false; reason = "Nothing from $what is playing." ; sessions = @($all | ForEach-Object { "$($_.app): $($_.status)" }) } }
+    if ($action -eq 'play' -and @($all | Where-Object { $_.status -eq 'Playing' -and (-not $app -or $_.app.ToLower().Contains($app.ToLower())) }).Count) { return @{ done = $false; reason = 'Already playing.' } }
+    return @{ done = $false; reason = "No media player matching '$what' is open."; sessions = @($all | ForEach-Object { "$($_.app): $($_.status)" }) }
+  }
+  $done = @()
+  foreach ($t in $targets) {
+    $op = switch ($action) { 'pause' { $t.session.TryPauseAsync() } 'play' { $t.session.TryPlayAsync() } 'next' { $t.session.TrySkipNextAsync() } 'previous' { $t.session.TrySkipPreviousAsync() } 'stop' { $t.session.TryStopAsync() } default { throw "Unknown media action: $action" } }
+    [void](Await $op ([bool]))
+    $done += "$($t.app)$(if ($t.title) { ' — ' + $t.title })"
+  }
+  if ($action -eq 'pause') { $script:lastPaused = @($targets | ForEach-Object { $_.id }) }
+  return @{ done = $true; action = $action; apps = $done }
+}
+
+# ---- everything running, including background/tray apps
+function Get-RunningApps {
+  $win = @{}; Get-Windows | ForEach-Object { if ($_.app) { if (-not $win[$_.app]) { $win[$_.app] = @() }; $win[$_.app] += $_.title } }
+  $sys = '^(svchost|System|Idle|Registry|smss|csrss|wininit|winlogon|services|lsass|lsaiso|fontdrvhost|dwm|sihost|taskhostw|ctfmon|conhost|RuntimeBroker|SearchHost|SearchIndexer|StartMenuExperienceHost|ShellExperienceHost|TextInputHost|dllhost|WmiPrvSE|spoolsv|SecurityHealthService|SecurityHealthSystray|MsMpEng|NisSrv|audiodg|WUDFHost|SgrmBroker|MemCompression|backgroundTaskHost|smartscreen|ApplicationFrameHost|SystemSettingsBroker|UserOOBEBroker|LockApp|Widgets|WidgetService|PhoneExperienceHost|CompPkgSrv|MoUsoCoreWorker|TiWorker|TrustedInstaller|wlanext|unsecapp|dasHost|AggregatorHost|SearchProtocolHost|SearchFilterHost|crashpad_handler|msedgewebview2|Jarvis|powershell|pwsh|OpenConsole|WindowsTerminal|explorer)$'
+  $groups = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -notmatch $sys -and $_.Id -ne $PID } | Group-Object ProcessName
+  $apps = foreach ($g in $groups) {
+    $p = $g.Group[0]
+    $desc = $null; try { $desc = $p.MainModule.FileVersionInfo.FileDescription } catch {}
+    $path = $null; try { $path = $p.Path } catch {}
+    if ($path -and $path -match '^C:\\Windows\\' -and -not $win[$g.Name]) { continue }
+    [pscustomobject]@{
+      app = $g.Name; name = $(if ($desc) { $desc } else { $g.Name }); processes = $g.Count
+      memoryMB = [int](($g.Group | Measure-Object WorkingSet64 -Sum).Sum / 1MB)
+      windows = @($win[$g.Name] | Select-Object -First 3)
+      background = -not $win[$g.Name]
+    }
+  }
+  return @($apps | Sort-Object @{ e = { $_.background } }, @{ e = { -$_.memoryMB } } | Select-Object -First 60)
+}
+
 function Get-Vol { try { return @{ volume = [int][Math]::Round([Jarvis.Audio]::Volume * 100); muted = [Jarvis.Audio]::Mute } } catch { return @{ volume = $null; muted = $null } } }
 
 [void][Jarvis.Input]::SetProcessDPIAware()
@@ -328,7 +445,27 @@ function Invoke-Command1($m) {
       return (Get-Vol)
     }
     'setMute' { [Jarvis.Audio]::Mute = [bool]$m.on; return (Get-Vol) }
-    'nowPlaying' { return (Get-NowPlaying) }
+    'nowPlaying' {
+      try {
+        $all = @(Get-MediaSessions)
+        $list = @($all | ForEach-Object { [ordered]@{ app = $_.app; status = $_.status; title = $_.title; artist = $_.artist; music = $_.music } })
+        $p = @($all | Where-Object { $_.status -eq 'Playing' } | Sort-Object { -not $_.music }) | Select-Object -First 1
+        if (-not $p) { $p = $all | Select-Object -First 1 }
+        if ($p) { return @{ app = $p.app; playing = ($p.status -eq 'Playing'); title = $p.title; artist = $p.artist; sessions = $list } }
+        return @{ app = $null; playing = $null; title = $null; sessions = @() }
+      } catch { $r = Get-NowPlaying; $r.note = 'media sessions unavailable: ' + $_.Exception.Message; return $r }
+    }
+    'mediaSessions' { return @{ sessions = @(Get-MediaSessions | ForEach-Object { [ordered]@{ app = $_.app; status = $_.status; title = $_.title; artist = $_.artist; music = $_.music; current = $_.current } }) } }
+    'mediaControl' {
+      try { return (Invoke-MediaSession ([string]$m.action) ([string]$m.app)) }
+      catch {
+        # older Windows: fall back to the media keys
+        $vk = $MEDIA[[string]$(if ($m.action -in 'play','pause') { 'play_pause' } else { $m.action })]
+        if (-not $vk) { throw }
+        [Jarvis.Input]::Tap([byte]$vk); return @{ done = $true; action = $m.action; apps = @('(media key)'); note = $_.Exception.Message }
+      }
+    }
+    'apps' { return @{ apps = @(Get-RunningApps) } }
     'windows' { return @{ windows = @(Get-Windows | Where-Object { $_.app -ne 'Jarvis' } | Select-Object -First 40) } }
     'window' {
       $w = Find-Window ([string]$m.target)
@@ -381,6 +518,10 @@ if ($SelfTest) {
   Write-Output ("keys parse: " + ((@('ctrl', 'shift', 's', 'f5', 'enter', 'win') | ForEach-Object { Get-Vk $_ }) -join ','))
   $r = Invoke-Command1 ([pscustomobject]@{ cmd = 'ping' }); Write-Output ("ping: " + ($r | ConvertTo-Json -Compress))
   Write-Output ("foreground: " + ((Get-Foreground) | ConvertTo-Json -Compress))
+  if ($script:smtcError) { Write-Output "MEDIA SESSIONS FAILED to load: $($script:smtcError)"; $script:uiFail = $true }
+  try { $ms = @(Get-MediaSessions); Write-Output ("media sessions: " + $ms.Count + " " + (($ms | ForEach-Object { "$($_.app)=$($_.status)" }) -join ', ')) } catch { Write-Output "MEDIA SESSIONS FAILED: $($_.Exception.Message)"; $script:uiFail = $true }
+  try { $r = Invoke-MediaSession 'pause' ''; Write-Output ("pause with nothing playing: " + ($r | ConvertTo-Json -Compress -Depth 3)) } catch { Write-Output "MEDIA CONTROL FAILED: $($_.Exception.Message)"; $script:uiFail = $true }
+  try { $ra = @(Get-RunningApps); Write-Output ("running apps: " + $ra.Count + " -> " + (($ra | Select-Object -First 12 | ForEach-Object { "$($_.name)$(if ($_.background) { ' (bg)' })" }) -join ', ')) } catch { Write-Output "APPS FAILED: $($_.Exception.Message)"; $script:uiFail = $true }
   # open a small test window (button + text box) in another process, then drive it through accessibility
   $form = 'Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form; $f.Text = ''JarvisTestWindow''; $f.Width = 400; $f.Height = 200; $t = New-Object Windows.Forms.TextBox; $t.Name = ''box''; $t.AccessibleName = ''Message box''; $t.Top = 10; $t.Left = 10; $t.Width = 300; $b = New-Object Windows.Forms.Button; $b.Text = ''Press me''; $b.Top = 50; $b.Left = 10; $b.Width = 120; $b.Add_Click({ $f.Text = ''JarvisTestWindow pressed '' + $t.Text }); $f.Controls.Add($t); $f.Controls.Add($b); [void]$f.ShowDialog()'
   $tp = Start-Process powershell -ArgumentList '-NoProfile', '-Command', $form -PassThru; Start-Sleep -Seconds 3
