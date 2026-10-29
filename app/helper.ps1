@@ -377,18 +377,19 @@ if ($SelfTest) {
   Write-Output ("keys parse: " + ((@('ctrl', 'shift', 's', 'f5', 'enter', 'win') | ForEach-Object { Get-Vk $_ }) -join ','))
   $r = Invoke-Command1 ([pscustomobject]@{ cmd = 'ping' }); Write-Output ("ping: " + ($r | ConvertTo-Json -Compress))
   Write-Output ("foreground: " + ((Get-Foreground) | ConvertTo-Json -Compress))
-  $np = Start-Process notepad -PassThru; Start-Sleep -Seconds 2
-  Write-Output ("after notepad: " + ((Get-Windows | ForEach-Object { "$($_.app)|$($_.title)" }) -join ' ;; '))
-  try { $fw = Find-Window 'notepad'; Write-Output ("find: " + ($fw | ConvertTo-Json -Compress)) } catch { Write-Output "find failed: $($_.Exception.Message)" }
-  try { $rt = Get-Root 'notepad'; $rc = $rt.el.Current; Write-Output ("root: '" + $rc.Name + "' " + $rc.ControlType.ProgrammaticName + " class=" + $rc.ClassName)
-        $kids = $rt.el.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition); Write-Output ("raw children: " + $kids.Count + " -> " + (($kids | Select-Object -First 6 | ForEach-Object { $_.Current.ControlType.ProgrammaticName + ":" + $_.Current.Name }) -join ', '))
-        $fc = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetFirstChild($rt.el); Write-Output ("walker first child: " + $(if ($fc) { $fc.Current.Name + ' ' + $fc.Current.ControlType.ProgrammaticName } else { 'null' })) } catch { Write-Output "root failed: $($_.Exception.Message)" }
-  try { $rt2 = Get-Root 'notepad'; $all = $rt2.el.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition); Write-Output ("descendants: " + $all.Count + " -> " + (($all | Select-Object -First 25 | ForEach-Object { ($_.Current.ControlType.ProgrammaticName -replace 'ControlType\.','') + ":" + $_.Current.Name }) -join ', ')) } catch { Write-Output "desc failed: $($_.Exception.Message)" }
-  $ui = Read-UI 'notepad' 60; Write-Output ("notepad elements: " + $ui.elements.Count + " -> " + (($ui.elements | Select-Object -First 8 | ForEach-Object { "[$($_.n)] $($_.type) '$($_.name)'" }) -join '; '))
-  $edit = $ui.elements | Where-Object { $_.type -match 'Edit|Document' } | Select-Object -First 1
-  if ($edit) { $st = Set-UIText 'notepad' $edit.n 'hello from jarvis' $false; $ui2 = Read-UI 'notepad' 60; $v = ($ui2.elements | Where-Object { $_.type -match 'Edit|Document' } | Select-Object -First 1).value; Write-Output "set text -> '$v'" }
-  try { $c = Click-UI 'notepad' 'File' $false; Write-Output ("click File: " + ($c | ConvertTo-Json -Compress)) } catch { Write-Output "click File failed: $($_.Exception.Message)" }
-  Stop-Process -Id $np.Id -Force -ErrorAction SilentlyContinue
+  # open a small test window (button + text box) in another process, then drive it through accessibility
+  $form = 'Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form; $f.Text = ''JarvisTestWindow''; $f.Width = 400; $f.Height = 200; $t = New-Object Windows.Forms.TextBox; $t.Name = ''box''; $t.AccessibleName = ''Message box''; $t.Top = 10; $t.Left = 10; $t.Width = 300; $b = New-Object Windows.Forms.Button; $b.Text = ''Press me''; $b.Top = 50; $b.Left = 10; $b.Width = 120; $b.Add_Click({ $f.Text = ''JarvisTestWindow pressed '' + $t.Text }); $f.Controls.Add($t); $f.Controls.Add($b); [void]$f.ShowDialog()'
+  $tp = Start-Process powershell -ArgumentList '-NoProfile', '-Command', $form -PassThru; Start-Sleep -Seconds 3
+  try {
+    $ui = Read-UI 'JarvisTestWindow' 60; Write-Output ("test window elements: " + (($ui.elements | ForEach-Object { "[$($_.n)] $($_.type) '$($_.name)'" }) -join '; '))
+    $st = Set-UIText 'JarvisTestWindow' 'Message box' 'hello' $false; Write-Output ("set text: " + ($st | ConvertTo-Json -Compress))
+    $c = Click-UI 'JarvisTestWindow' 'Press me' $false; Write-Output ("click: " + ($c | ConvertTo-Json -Compress))
+    Start-Sleep -Milliseconds 800
+    $after = (Get-Windows | Where-Object { $_.title -like 'JarvisTestWindow*' } | Select-Object -First 1).title; Write-Output "title after click: $after"
+    if ($after -eq 'JarvisTestWindow pressed hello') { Write-Output 'UIA OK' } else { Write-Output 'UIA FAILED' }
+  } catch { Write-Output "UIA FAILED: $($_.Exception.Message)" }
+  Stop-Process -Id $tp.Id -Force -ErrorAction SilentlyContinue
+  if ($script:uiOk -eq $false) { }
   Write-Output 'SELFTEST OK'
   exit 0
 }
