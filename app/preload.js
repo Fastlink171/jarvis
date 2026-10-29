@@ -12,10 +12,11 @@ contextBridge.exposeInMainWorld('jarvis', {
   flash: inv('win:flash'),
   isVisible: inv('win:visible'),
   pc: inv('pc:do'),
+  capture: inv('screen:capture'),
   ollama: {
     version: inv('ollama:version'), tags: inv('ollama:tags'), ps: inv('ollama:ps'), show: inv('ollama:show'),
     start: inv('ollama:start'), pull: inv('ollama:pull'), pullCancel: inv('ollama:pullCancel'), remove: inv('ollama:delete'),
-    chat: inv('ollama:chat'), abort: inv('ollama:abort')
+    chat: inv('ollama:chat'), abort: inv('ollama:abort'), unload: inv('ollama:unload')
   },
   ps: { run: inv('ps:run'), cwd: inv('ps:cwd') },
   fs: { read: inv('fs:read'), write: inv('fs:write'), resolve: inv('fs:resolve') },

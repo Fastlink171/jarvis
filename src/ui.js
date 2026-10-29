@@ -23,7 +23,8 @@ const MODELS = [
 /* ============================================================ state */
 const S = {
   info:{}, name:store.get('name', ''), ollama:false, models:[], model:store.get('model', ''), caps:[], modelSize:0,
-  deep:store.get('deep', false), duck:store.get('duck', true), visible:true, listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
+  deep:store.get('deep', false), duck:store.get('duck', true), visible:true,
+  screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
   pending:null, history:[], run:0, chatId:null,
   confirm:store.get('confirm', true), autoSafe:store.get('autoSafe', true),
   voice:store.get('voice', 'bm_george'), rate:store.get('rate', 1), ear:store.get('ear', 'whisper-base.en'), sens:store.get('sens', 0.5),
@@ -303,6 +304,10 @@ const TOOLS = [
   { name:'now_playing', description:'What song is playing (Spotify) or which YouTube video is open, plus the current volume.', params:{}, required:[] },
   { name:'window_control', description:'List open windows, or focus / minimize / maximize / restore / close one. Target is an app name ("spotify", "chrome", "notepad") or part of a window title.', params:{ action:{ type:'string', enum:['list', 'focus', 'minimize', 'maximize', 'restore', 'close'] }, target:{ type:'string' } }, required:['action'] },
   { name:'press_keys', description:'Press keyboard shortcuts in an app, e.g. "ctrl+s", "alt+tab", "ctrl+shift+esc", "space", "f5". Several in order: "ctrl+a, ctrl+c". Give window to switch to that app first (otherwise keys go to whatever is in front).', params:{ keys:{ type:'string' }, window:{ type:'string', description:'app or window to switch to first' }, times:{ type:'number' } }, required:['keys'] },
+  { name:'read_window', description:'Read what is in any open window — its buttons, menus, links, text and boxes — even if it is behind other windows or the user is in a game. Returns numbered elements to use with click and set_text. Use this before clicking. Target is an app name ("spotify", "discord", "chrome") or part of the window title.', params:{ window:{ type:'string' } }, required:['window'] },
+  { name:'click', description:'Click a button, menu item, link, tab or list item in a window, by its number from read_window or by its name. Works on windows in the background without switching to them when possible.', params:{ window:{ type:'string' }, element:{ type:'string', description:'number from read_window, or the element name' }, right_click:{ type:'boolean' } }, required:['window', 'element'] },
+  { name:'set_text', description:'Put text into a text box or search field in a window (by number from read_window or name), optionally pressing Enter.', params:{ window:{ type:'string' }, element:{ type:'string' }, text:{ type:'string' }, press_enter:{ type:'boolean' } }, required:['window', 'element', 'text'] },
+  { name:'look_at_screen', description:'Look at the screen (or one window, even if it is behind others) and answer a question about what is visible. Use for games, images, videos, or when read_window shows little. The picture is never saved.', params:{ question:{ type:'string', description:'what you need to know from the picture' }, window:{ type:'string', description:'optional app/window to look at instead of the whole screen' } }, required:['question'] },
   { name:'type_text', description:'Type text into an app as if on the keyboard. Give window to switch to that app first.', params:{ text:{ type:'string' }, window:{ type:'string' }, press_enter:{ type:'boolean' } }, required:['text'] }
 ];
 const toolSchemas = () => TOOLS.map(t => ({ type:'function', function:{ name:t.name, description:t.description, parameters:{ type:'object', properties:t.params, required:t.required } } }));
@@ -407,6 +412,29 @@ async function runTool(name, args){
         const r = await J.pc('type', { text: args.text, target: args.window || '', enter: !!args.press_enter }); countAction();
         return r.ok ? 'Typed ' + String(args.text).length + ' characters.' : 'Failed: ' + r.error;
       }
+      case 'read_window': {
+        toolLine('◎', 'Reading ' + args.window);
+        const r = await J.pc('uiRead', { target: args.window, max: 160 });
+        if (!r.ok) return 'Failed: ' + r.error;
+        countAction();
+        const lines = (r.elements || []).map(e => `[${e.n}] ${e.type}${e.name ? ' "' + e.name + '"' : ''}${e.id ? ' (id ' + e.id + ')' : ''}${e.value ? ' = "' + e.value + '"' : ''}${e.disabled ? ' (disabled)' : ''}`);
+        return `WINDOW: ${r.window} (${r.app})${r.minimized ? ' — minimized, so some content may be hidden; restore it with window_control if needed' : ''}\n` + (lines.join('\n') || '(this window exposes no readable elements — try look_at_screen)') + (r.truncated ? '\n…(more elements not shown)' : '');
+      }
+      case 'click': {
+        const label = String(args.element);
+        if (S.confirm && /delete|remove|uninstall|erase|format|buy|purchase|pay|checkout|order|send|post|submit|transfer|sign out|log ?out/i.test(label)) {
+          const ok = await confirmAction(`I’d like to click “${label}” in ${args.window}.`, `Click “${label}” in ${args.window}`); if (!ok) return 'The user declined.';
+        }
+        toolLine('➚', `Clicking “${label}” in ${args.window}`);
+        const r = await J.pc('uiClick', { target: args.window, element: label, right: !!args.right_click }); countAction();
+        return r.ok ? `Clicked "${r.clicked}"${r.how === 'mouse' ? ' (brought the window forward to click it)' : ''}.` : 'Failed: ' + r.error;
+      }
+      case 'set_text': {
+        toolLine('⌨', `Typing into ${args.window}: ${clip(args.text, 50)}`);
+        const r = await J.pc('uiSetText', { target: args.window, element: String(args.element), text: String(args.text), enter: !!args.press_enter }); countAction();
+        return r.ok ? 'Text entered.' : 'Failed: ' + r.error;
+      }
+      case 'look_at_screen': return await lookAtScreen(String(args.question || 'Describe what is on the screen.'), args.window);
       case 'system_status': {
         const s = await J.stats(); renderStats(s);
         return JSON.stringify({ cpu: s.cpu + '%', memory: `${s.memUsed}/${s.memTotal} GB (${s.mem}%)`, disk_c: `${s.diskFree} GB free of ${s.diskTotal} GB`, uptime: s.uptime, gpu: s.gpu, top_processes_MB: s.procs });
@@ -423,11 +451,13 @@ function systemPrompt(){
   return `You are J.A.R.V.I.S. ("Jarvis"), a personal AI assistant living on ${userName()}'s Windows PC (${S.info.computer || 'this PC'}, ${S.info.os || 'Windows'}). You run entirely on this computer.
 Current date and time: ${new Date().toLocaleString([], { weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'numeric', minute:'2-digit' })}.
 User's name: ${userName()}. Home folder: ${S.info.home || ''}. PowerShell current folder: ${S.cwd || S.info.home || ''}.
-${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${open.length ? 'Open tasks: ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
+${S.gaming ? `The user is playing ${S.gameApp} in fullscreen right now: do not bring other windows to the front unless they ask, keep replies very short.\n` : ''}${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${open.length ? 'Open tasks: ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
 PERSONALITY: calm, capable, quietly witty, British, loyal. Address the user as "sir" occasionally, not every sentence.
 
 HOW YOU WORK:
 - You have tools. Use them instead of guessing. For anything about current events, prices, people, products, sports, or facts you are not certain of: call web_search, then read_webpage on the best one or two results, then answer. Never invent facts, numbers or URLs.
+- You can see and use any open window, even ones behind others or while the user is in a game: read_window lists a window's buttons/text with numbers, then click or set_text by number. Use look_at_screen when you need to actually see (games, images, video) or read_window shows little. Pictures are never saved.
+- Music and volume: always use media_control / now_playing. They work from anywhere — never switch windows for them.
 - To act on the PC: open (apps, files, sites), media_control and now_playing (music, video, volume), window_control (switch to, minimize, close windows), press_keys and type_text (keyboard shortcuts and typing into any app — pass window so it goes to the right app), or run_powershell for anything else. Think about what the user actually wants and do it in as few steps as possible. Check results and fix mistakes.
 - When the user tells you something about themselves worth keeping, call remember.
 - Prefer safe, read-only commands. Never delete files, change security settings or do anything destructive unless the user clearly asked for it.
@@ -442,7 +472,7 @@ function trimHistory(){
   while (S.history.length && S.history[0].role !== 'user') S.history.shift();
 }
 function chatBody(messages, withTools){
-  const body = { model: S.model, messages, keep_alive: '30m', options: { num_ctx: S.modelSize > 11e9 ? 8192 : 16384, temperature: 0.5 } };
+  const body = { model: S.model, messages, keep_alive: S.gaming ? '2m' : '30m', options: { num_ctx: S.modelSize > 11e9 ? 8192 : 16384, temperature: 0.5 } };
   if (withTools && S.caps.includes('tools')) body.tools = toolSchemas();
   if (S.caps.includes('thinking')) body.think = /gpt-oss/i.test(S.model) ? (S.deep ? 'high' : 'low') : !!S.deep;
   return body;
@@ -479,6 +509,7 @@ async function think(text){
   if (!S.ollama) return reply('My brain isn’t running, sir. Ollama doesn’t seem to be open — I’ve tried to start it. Give it a moment, or open Settings and run setup.');
   if (!S.model) return reply('I don’t have a brain model yet, sir. Open Settings to download one.');
   const runId = ++S.run;
+  lastAI = Date.now(); S.unloaded = false;
   pushUser(text);
   S.thinking = true; setState();
   const t0 = performance.now();
@@ -531,6 +562,7 @@ async function think(text){
       trimHistory();
       if (step === 9) reply('I’ve taken quite a few steps on that, sir, so I’ll stop here. Tell me if you want me to keep going.');
     }
+    lastAI = Date.now();
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
     event(`answered in ${secs}s`);
   } finally { if (runId === S.run) { S.thinking = false; setState(); } }
@@ -538,6 +570,53 @@ async function think(text){
 const safeJSON = s => { try { return JSON.parse(s); } catch { return {}; } };
 function pushUser(text){ S.history.push({ role:'user', content:text }); trimHistory(); }
 function interrupt(){ S.run++; if (S.chatId) J.ollama.abort(S.chatId); stopVoice(); S.thinking = false; setState(); }
+
+/* ============================================================ eyes (screen in memory only) */
+async function visionModel(){
+  if (S.caps.includes('vision')) return S.model;
+  if (S.visionModel !== undefined) return S.visionModel;
+  S.visionModel = null;
+  for (const m of S.models) { const r = await J.ollama.show(m.name); if (r.ok && r.capabilities.includes('vision')) { S.visionModel = m.name; break; } }
+  return S.visionModel;
+}
+async function lookAtScreen(question, target){
+  if (!S.screen) return 'Screen access is turned off in Settings.';
+  const vm = await visionModel();
+  if (!vm) return 'None of the installed brain models can see images. Qwen 3.5 can — download it in Settings → Get another model.';
+  toolLine('◉', 'Looking at ' + (target ? target : 'the screen'));
+  const cap = await J.capture(target || '');
+  if (!cap.ok) return 'Could not look: ' + cap.error;
+  event('looked at ' + (target ? target : 'the screen') + ' (not saved)');
+  countAction();
+  const caps = vm === S.model ? S.caps : [];
+  const body = { model: vm, keep_alive: S.gaming ? '1m' : '30m', options: { num_ctx: 8192, temperature: 0.2 },
+    messages: [
+      { role:'system', content:'You are the eyes of a desktop assistant. Look carefully at the screenshot and answer the question precisely. Read any relevant visible text exactly. Mention where things are (top-left, centre, etc.) when useful. Be concise.' },
+      { role:'user', content: question, images: [cap.b64] }
+    ] };
+  if (caps.includes('thinking')) body.think = false;
+  const r = await J.ollama.chat('v' + Date.now(), body);
+  cap.b64 = null;
+  if (!r.ok) return 'Could not analyse the picture: ' + r.error;
+  return `SEEN (${cap.name}, ${cap.width}x${cap.height}): ` + String(r.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
+/* ============================================================ game mode: free the graphics card while you play */
+let lastAI = Date.now();
+async function checkGame(){
+  if (!S.gameMode) { S.gaming = false; return; }
+  const f = await J.pc('foreground');
+  const was = S.gaming;
+  S.gaming = !!(f.ok && f.fullscreen && f.app && !/^(jarvis|explorer|applicationframehost|searchhost|shellexperiencehost|lockapp)$/i.test(f.app));
+  S.gameApp = S.gaming ? f.app : '';
+  if (S.gaming && !was) { event('game mode: ' + f.app); S.unloaded = false; }
+  if (S.gaming && !S.unloaded && !S.thinking && Date.now() - lastAI > 45000 && S.model) {
+    const r = await J.ollama.unload(S.model);
+    if (r.ok) { S.unloaded = true; event('game mode: freed the graphics card (brain reloads when you ask something)'); pollGpu(); }
+  }
+  if (!S.gaming && was) { event('game mode off'); if (S.unloaded) { S.unloaded = false; warmUp(); } }
+  if (S.gaming) tb('#tbGpu', 'GAME MODE', 'warn');
+}
 
 /* ============================================================ media / PC control */
 async function mediaAction(a, level){
@@ -669,6 +748,7 @@ function drawActivity(){
 }
 async function pollStats(){ try { renderStats(await J.stats()); } catch {} }
 async function pollGpu(){
+  if (S.gaming) return;
   const r = await J.ollama.ps();
   const m = r.ok && r.models.find(x => x.name === S.model || x.model === S.model) || (r.ok && r.models[0]);
   if (m && m.size) {
@@ -873,6 +953,8 @@ function wire(){
   J.on('tray:wake', on => setWake(!!on));
   J.on('win:visible', v => { S.visible = v; });
   J.isVisible().then(v => { S.visible = v; });
+  $('#screenChk').checked = S.screen; $('#screenChk').onchange = e => { S.screen = e.target.checked; store.set('screen', S.screen); };
+  $('#gameChk').checked = S.gameMode; $('#gameChk').onchange = e => { S.gameMode = e.target.checked; store.set('gameMode', S.gameMode); if (!S.gameMode && S.unloaded) { S.unloaded = false; warmUp(); } };
   $('#duck').checked = S.duck; $('#duck').onchange = e => { S.duck = e.target.checked; store.set('duck', S.duck); };
   $('#wakePill').onclick = () => setWake(!S.wake);
   $('#newSess').onclick = () => { interrupt(); S.history = []; S.session = 0; $('#log').innerHTML = ''; renderCounters(); addMsg('sys', 'New session started. Memories are kept.'); };
@@ -1004,6 +1086,7 @@ async function boot(){
   requestAnimationFrame(frame);
   tick(); setInterval(tick, 1000);
   setInterval(() => { if (!document.hidden && S.visible) { drawActivity(); renderRelays(); } }, 1000);
+  setInterval(() => { checkGame().catch(() => {}); }, 15000);
   pollStats(); setInterval(() => { if (!document.hidden && S.visible) pollStats(); }, 5000); setInterval(() => { if (!document.hidden && S.visible) pollGpu(); }, 8000);
   if (S.city) { $('#wCity').value = S.city.name.split(',')[0]; loadWeather(); }
   loadBtc(); setInterval(loadBtc, 60000); setInterval(loadWeather, 15 * 60000);

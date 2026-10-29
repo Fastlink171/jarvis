@@ -4,7 +4,7 @@
   Everything runs on this PC: the AI brain is Ollama (http://127.0.0.1:11434),
   speech recognition and the voice run inside the window (Whisper + Kokoro).
 */
-const { app, BrowserWindow, ipcMain, shell, protocol, net, session, globalShortcut, Tray, Menu, nativeImage, safeStorage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, protocol, net, session, globalShortcut, Tray, Menu, nativeImage, safeStorage, Notification, desktopCapturer, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -544,3 +544,32 @@ async function pc(cmd, args = {}) {
 ipcMain.handle('pc:do', (e, cmd, args) => pc(String(cmd), args || {}));
 app.whenReady().then(() => { if (IS_WIN) setTimeout(() => startHelper().catch(() => {}), 4000); });
 app.on('will-quit', () => { try { helper && helper.kill(); } catch {} });
+
+/* ------------------------------------------------------------------ seeing the screen (in memory only, never saved) */
+ipcMain.handle('screen:capture', async (e, target) => {
+  try {
+    target = String(target || '').trim().toLowerCase();
+    const d = screen.getPrimaryDisplay();
+    const scale = Math.min(1, 1280 / (d.size.width * d.scaleFactor));
+    const size = { width: Math.round(d.size.width * d.scaleFactor * scale), height: Math.round(d.size.height * d.scaleFactor * scale) };
+    let src;
+    if (target) {
+      const wins = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: size, fetchWindowIcons: false });
+      src = wins.find(w => w.name.toLowerCase() === target) || wins.find(w => w.name.toLowerCase().includes(target));
+      if (!src && helper) { const r = await pc('windows'); const w = r.ok && r.windows.find(x => (x.app || '').toLowerCase().includes(target)); if (w) src = wins.find(x => x.name === w.title); }
+      if (!src) return { ok: false, error: 'No open window matches "' + target + '".' };
+    } else {
+      const scr = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: size });
+      src = scr.find(x => x.display_id === String(d.id)) || scr[0];
+    }
+    if (!src || src.thumbnail.isEmpty()) return { ok: false, error: 'That window can’t be captured (it may be minimized).' };
+    const img = src.thumbnail;
+    const jpg = img.toJPEG(72);                       // kept in memory, sent to the AI, then discarded
+    return { ok: true, name: src.name, width: img.getSize().width, height: img.getSize().height, b64: jpg.toString('base64') };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+
+/* free the graphics card (e.g. while gaming): unload the model; it reloads on the next question */
+ipcMain.handle('ollama:unload', async (e, model) => {
+  try { await ojson('/api/generate', { model, keep_alive: 0 }, 10000); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
+});
