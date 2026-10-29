@@ -12,8 +12,8 @@
 1. Make the change.
 2. Bump `version` in `package.json` (e.g. 1.1.0 → 1.2.0).
 3. Replace `build/release-notes.md` with a short list of what changed (shown to the user inside Jarvis).
-4. Commit, then tag and push: `git tag v1.2.0 && git push origin main --tags`.
-5. GitHub Actions (`.github/workflows/release.yml`) builds `Jarvis-Setup-1.2.0.exe` on Windows and publishes the release.
-   Installed copies check on launch and every 3 hours, download in the background, and install on restart.
+4. Commit and push to `main`.
+5. GitHub Actions (`.github/workflows/release.yml`) sees the new version, builds `Jarvis-Setup-<version>.exe` on Windows and publishes release `v<version>`.
+   Pushes that don't change the version build nothing. Installed copies check on launch and every 3 hours, download in the background, and install on restart.
 
-The tag must match the package.json version. User data (memories, settings, voice models) lives in `%APPDATA%\Jarvis` and survives updates.
+User data (memories, settings, voice models) lives in `%APPDATA%\Jarvis` and survives updates.
