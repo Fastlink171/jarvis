@@ -1,4 +1,3 @@
-- You can now say "Hey Jarvis" while he's talking: he stops and listens.
-- Smoother voice: no more long pauses mid-answer. Jarvis prepares the next sentences while he's still speaking.
-- New look: Neon Pop, a teal-and-pink night-stage theme with floating music notes. Switch back to Classic any time in Settings → Theme.
-- New desktop pet: a little music-bot that sits on your desktop, shows what Jarvis is doing, and pops up speech bubbles. Click it to talk, drag it anywhere, right-click for options. It hides itself during fullscreen games. Turn it off in Settings.
+- Custom look: choose your own pictures for the desktop pet (one for normal, and optionally ones for talking, listening and thinking) and your own wallpaper for Jarvis's window. Settings → Custom look. Animated GIFs work too. Your pictures stay on your PC.
+- Pet size and wallpaper dimming sliders.
+- Every voice in Jarvis's speech engine can now be picked in Settings → Voice, not just the male ones.
