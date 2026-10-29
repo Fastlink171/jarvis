@@ -1,8 +1,8 @@
 name: Build and release Jarvis
 
-# Runs on every push to main. If package.json has a version that hasn't been
-# released yet, it builds the Windows installer on GitHub's Windows machines and
-# publishes it as a release. Installed copies of Jarvis then update themselves.
+# Runs on every push to main. If package.json has a version whose release is
+# missing (or incomplete), it builds the Windows installer on GitHub's Windows
+# machines and publishes it. Installed copies of Jarvis then update themselves.
 on:
   push:
     branches: [main]
@@ -29,7 +29,8 @@ jobs:
         run: |
           VER=$(node -p "require('./package.json').version")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          if gh release view "v$VER" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          ASSETS=$(gh release view "v$VER" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)
+          if echo "$ASSETS" | grep -qx latest.yml; then
             echo "v$VER is already released - nothing to do."
             echo "new=false" >> "$GITHUB_OUTPUT"
           else
@@ -46,16 +47,31 @@ jobs:
       - if: steps.ver.outputs.new == 'true'
         run: npm ci
 
-      - if: steps.ver.outputs.new == 'true'
+      - name: Build installer
+        if: steps.ver.outputs.new == 'true'
         shell: bash
         run: |
           set -o pipefail
-          npm run release 2>&1 | tee build.log || {
+          npm run dist 2>&1 | tee build.log || {
             # surface the end of the log as annotations so it can be read without downloading logs
-            tail -n 60 build.log | grep -v '^\s*$' | tail -n 45 > tail.txt
+            grep -v '^\s*$' build.log | tail -n 45 > tail.txt
             split -l 15 tail.txt part_
             for f in part_*; do msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g' "$f"); echo "::error title=build log::$msg"; done
             exit 1
           }
+          ls -la dist
+
+      - name: Publish release
+        if: steps.ver.outputs.new == 'true'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VER=${{ steps.ver.outputs.version }}
+          FILES="dist/Jarvis-Setup-$VER.exe dist/Jarvis-Setup-$VER.exe.blockmap dist/latest.yml"
+          if gh release view "v$VER" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "v$VER" $FILES --clobber -R "$GITHUB_REPOSITORY"
+            gh release edit "v$VER" --notes-file build/release-notes.md --draft=false --latest -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "v$VER" $FILES --title "Jarvis $VER" --notes-file build/release-notes.md --target "$GITHUB_SHA" --latest -R "$GITHUB_REPOSITORY"
+          fi
