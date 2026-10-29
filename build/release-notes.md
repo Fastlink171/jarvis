@@ -1,4 +1,3 @@
-- Just say "Hey Jarvis". A dedicated wake-word detector now listens all the time, including in games and while Jarvis is in the tray, and uses almost no processing power.
-- Say it all in one go ("Hey Jarvis, pause the music") or say "Hey Jarvis", wait for "Yes, sir?", then ask.
-- On by default. Toggle it with the HEY JARVIS button (bottom right) or from the tray icon. Adjust how easily it triggers with Settings → Mic & "Hey Jarvis" sensitivity.
-- Nothing you say leaves your PC.
+- Fixed: "play" / "unpause" now resumes the right thing. Jarvis sees every media player on your PC (Spotify, each show or video in Chrome, YouTube, VLC…) and controls the one you mean instead of whatever Windows last used.
+- Say which one if you like: "pause Spotify", "resume the show", "skip this song", "next episode". Plain "pause" pauses everything that's playing; plain "play" resumes what was paused, preferring music.
+- Jarvis now knows every app running on your PC, including background and tray apps like Discord and Steam, and what each player is playing.
