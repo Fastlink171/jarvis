@@ -378,6 +378,11 @@ if ($SelfTest) {
   $r = Invoke-Command1 ([pscustomobject]@{ cmd = 'ping' }); Write-Output ("ping: " + ($r | ConvertTo-Json -Compress))
   Write-Output ("foreground: " + ((Get-Foreground) | ConvertTo-Json -Compress))
   $np = Start-Process notepad -PassThru; Start-Sleep -Seconds 2
+  Write-Output ("after notepad: " + ((Get-Windows | ForEach-Object { "$($_.app)|$($_.title)" }) -join ' ;; '))
+  try { $fw = Find-Window 'notepad'; Write-Output ("find: " + ($fw | ConvertTo-Json -Compress)) } catch { Write-Output "find failed: $($_.Exception.Message)" }
+  try { $rt = Get-Root 'notepad'; $rc = $rt.el.Current; Write-Output ("root: '" + $rc.Name + "' " + $rc.ControlType.ProgrammaticName + " class=" + $rc.ClassName)
+        $kids = $rt.el.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition); Write-Output ("raw children: " + $kids.Count + " -> " + (($kids | Select-Object -First 6 | ForEach-Object { $_.Current.ControlType.ProgrammaticName + ":" + $_.Current.Name }) -join ', '))
+        $fc = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetFirstChild($rt.el); Write-Output ("walker first child: " + $(if ($fc) { $fc.Current.Name + ' ' + $fc.Current.ControlType.ProgrammaticName } else { 'null' })) } catch { Write-Output "root failed: $($_.Exception.Message)" }
   $ui = Read-UI 'notepad' 60; Write-Output ("notepad elements: " + $ui.elements.Count + " -> " + (($ui.elements | Select-Object -First 8 | ForEach-Object { "[$($_.n)] $($_.type) '$($_.name)'" }) -join '; '))
   $edit = $ui.elements | Where-Object { $_.type -match 'Edit|Document' } | Select-Object -First 1
   if ($edit) { $st = Set-UIText 'notepad' $edit.n 'hello from jarvis' $false; $ui2 = Read-UI 'notepad' 60; $v = ($ui2.elements | Where-Object { $_.type -match 'Edit|Document' } | Select-Object -First 1).value; Write-Output "set text -> '$v'" }
