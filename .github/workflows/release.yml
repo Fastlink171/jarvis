@@ -19,7 +19,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Is this version new?
         id: ver
@@ -37,7 +37,7 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         if: steps.ver.outputs.new == 'true'
         with:
           node-version: 22
@@ -47,6 +47,15 @@ jobs:
         run: npm ci
 
       - if: steps.ver.outputs.new == 'true'
-        run: npm run release
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run release 2>&1 | tee build.log || {
+            # surface the end of the log as annotations so it can be read without downloading logs
+            tail -n 60 build.log | grep -v '^\s*$' | tail -n 45 > tail.txt
+            split -l 15 tail.txt part_
+            for f in part_*; do msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g' "$f"); echo "::error title=build log::$msg"; done
+            exit 1
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
