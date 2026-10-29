@@ -1,3 +1,4 @@
-- Fixed: "play" / "unpause" now resumes the right thing. Jarvis sees every media player on your PC (Spotify, each show or video in Chrome, YouTube, VLC…) and controls the one you mean instead of whatever Windows last used.
-- Say which one if you like: "pause Spotify", "resume the show", "skip this song", "next episode". Plain "pause" pauses everything that's playing; plain "play" resumes what was paused, preferring music.
-- Jarvis now knows every app running on your PC, including background and tray apps like Discord and Steam, and what each player is playing.
+- You can now say "Hey Jarvis" while he's talking: he stops and listens.
+- Smoother voice: no more long pauses mid-answer. Jarvis prepares the next sentences while he's still speaking.
+- New look: Neon Pop, a teal-and-pink night-stage theme with floating music notes. Switch back to Classic any time in Settings → Theme.
+- New desktop pet: a little music-bot that sits on your desktop, shows what Jarvis is doing, and pops up speech bubbles. Click it to talk, drag it anywhere, right-click for options. It hides itself during fullscreen games. Turn it off in Settings.
