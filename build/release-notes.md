@@ -1,1 +1,4 @@
-- New: Settings → Updates → GitHub update key. Paste your own read-only key so Jarvis can keep updating after the code repository is made private. The key is stored encrypted on your PC only.
+- Much smoother: hearing and voice now run in the background, so the window no longer freezes while Jarvis listens or talks.
+- Lighter animation: fewer frames while Jarvis is thinking or in the background, and no live glass blur by default.
+- New: Settings → Visual quality (Balanced, Full, Low).
+- The Log now notes any moment the window stalls, to help track down problems.

@@ -32,6 +32,14 @@ const S = {
   city:store.get('city', null), celsius:store.get('celsius', false), weather:null,
   level:0, micLv:0, cpuHist:[], netHist:[], actMic:[], actVoice:[], btcHist:[], btc:null, stats:null, gpuPct:null
 };
+const QUALITY = {
+  full:     { fps: 60, dpr: 2,    motes: true,  blur: true },
+  balanced: { fps: 30, dpr: 1.25, motes: true,  blur: false },
+  low:      { fps: 15, dpr: 1,    motes: false, blur: false }
+};
+let quality = store.get('quality', 'balanced'); if (!QUALITY[quality]) quality = 'balanced';
+let Q = QUALITY[quality];
+function applyQuality(){ document.body.classList.toggle('noblur', !Q.blur); }
 const speaking = () => !!(V && V.speaking);
 const userName = () => S.name || (S.info.user ? S.info.user[0].toUpperCase() + S.info.user.slice(1) : 'Operator');
 
@@ -735,7 +743,26 @@ function fillVoiceSelect(){
 
 /* ============================================================ scene + orb (shared with the HTML version) */
 /*__SCENE_ORB__*/
-function frame(t){ drawScene(t); drawOrb(t); requestAnimationFrame(frame); }
+let lastFrame = 0;
+function frame(t){
+  requestAnimationFrame(frame);
+  if (document.hidden) return;
+  // fewer frames while the AI is thinking (it shares the graphics card) or when Jarvis isn't the active window
+  let fps = Q.fps; if (S.thinking) fps = Math.min(fps, 20); if (!document.hasFocus()) fps = Math.min(fps, 10);
+  if (t - lastFrame < 1000 / fps - 2) return;
+  lastFrame = t; drawScene(t); drawOrb(t);
+}
+// note any moment the window stalls, so problems can be traced from the LOG panel
+let lastStallLog = 0;
+try {
+  new PerformanceObserver(list => {
+    for (const e of list.getEntries()) {
+      if (e.duration < 400 || performance.now() - lastStallLog < 5000) continue;
+      lastStallLog = performance.now();
+      event(`window stalled ${Math.round(e.duration)} ms (${speaking() ? 'speaking' : S.thinking ? 'thinking' : S.listening ? 'listening' : 'idle'})`);
+    }
+  }).observe({ type: 'longtask', buffered: false });
+} catch {}
 
 /* ============================================================ clock */
 function tick(){
@@ -804,6 +831,8 @@ function wire(){
   $('#sens').oninput = e => { S.sens = +e.target.value; store.set('sens', S.sens); if (V) V.sensitivity = S.sens; showS(); };
   $('#autoSafe').checked = S.autoSafe; $('#autoSafe').onchange = e => { S.autoSafe = e.target.checked; store.set('autoSafe', S.autoSafe); };
   $('#confirm').checked = S.confirm; $('#confirm').onchange = e => { S.confirm = e.target.checked; store.set('confirm', S.confirm); };
+  $('#qualSel').value = quality;
+  $('#qualSel').onchange = e => { quality = e.target.value; store.set('quality', quality); Q = QUALITY[quality]; applyQuality(); buildScene(); event('visual quality: ' + quality); };
   $('#celsius').checked = S.celsius; $('#celsius').onchange = e => { S.celsius = e.target.checked; store.set('celsius', S.celsius); loadWeather(); };
   $('#login').onchange = e => J.setPrefs({ login: e.target.checked });
   $('#trayChk').onchange = e => J.setPrefs({ tray: e.target.checked });
@@ -879,11 +908,12 @@ async function boot(){
   $('#login').checked = !!S.info.login; $('#trayChk').checked = !!S.info.tray;
   renderOperator(); renderCounters(); renderMem(); renderTasks(); renderTimers(); renderRelays(); setState();
   $('#wakePill').classList.toggle('on', S.wake); $('#wakeTxt').textContent = S.wake ? 'ON' : 'OFF';
-  buildScene(); addEventListener('resize', () => { buildScene(); renderCounters(); });
+  applyQuality(); buildScene();
+  let rz = 0; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { buildScene(); renderCounters(); }, 200); });
   requestAnimationFrame(frame);
   tick(); setInterval(tick, 1000);
-  setInterval(() => { drawActivity(); renderRelays(); }, 500);
-  pollStats(); setInterval(pollStats, 4000); setInterval(pollGpu, 5000);
+  setInterval(() => { if (!document.hidden) { drawActivity(); renderRelays(); } }, 1000);
+  pollStats(); setInterval(() => { if (!document.hidden) pollStats(); }, 5000); setInterval(() => { if (!document.hidden) pollGpu(); }, 8000);
   if (S.city) { $('#wCity').value = S.city.name.split(',')[0]; loadWeather(); }
   loadBtc(); setInterval(loadBtc, 60000); setInterval(loadWeather, 15 * 60000);
   setInterval(async () => { const was = S.ollama; const v = await J.ollama.version(); if (v.ok !== was) { await refreshModels(); event(v.ok ? 'Ollama connected' : 'Ollama disconnected'); if (v.ok) warmUp(); } }, 6000);

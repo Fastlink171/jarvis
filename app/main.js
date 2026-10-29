@@ -370,9 +370,9 @@ function cpuPercent() {
   lastCpu = c; return Math.max(0, Math.min(100, pct));
 }
 async function refreshSlow() {
-  if (!IS_WIN || slowBusy || Date.now() - slowAt < 8000) return;
+  if (!IS_WIN || slowBusy || Date.now() - slowAt < 15000) return;
   slowBusy = true; slowAt = Date.now();
-  const r = await runStatScript();
+  const r = await runStatScript(!slow.gpu);
   slowBusy = false;
   try {
     const j = JSON.parse(r);
@@ -383,9 +383,10 @@ async function refreshSlow() {
     if (j.gpu) slow.gpu = j.gpu;
   } catch {}
 }
-function runStatScript() {
+function runStatScript(withGpu) {
   return new Promise(resolve => {
-    const s = "$a = Get-NetAdapterStatistics -ErrorAction SilentlyContinue; $p = Get-Process | Sort-Object WS -Descending | Select-Object -First 6 Name,Id,WS; $g = (Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notmatch 'Basic|Virtual|Remote' } | Select-Object -First 1 -ExpandProperty Name); @{ rx = [double](($a | Measure-Object ReceivedBytes -Sum).Sum); tx = [double](($a | Measure-Object SentBytes -Sum).Sum); procs = @($p); gpu = $g } | ConvertTo-Json -Compress -Depth 4";
+    let s = "$a = Get-NetAdapterStatistics -ErrorAction SilentlyContinue; $p = Get-Process | Sort-Object WS -Descending | Select-Object -First 6 Name,Id,WS; $g = (Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notmatch 'Basic|Virtual|Remote' } | Select-Object -First 1 -ExpandProperty Name); @{ rx = [double](($a | Measure-Object ReceivedBytes -Sum).Sum); tx = [double](($a | Measure-Object SentBytes -Sum).Sum); procs = @($p); gpu = $g } | ConvertTo-Json -Compress -Depth 4";
+    if (!withGpu) s = s.replace(/\$g = \(Get-CimInstance[^;]*\); /, '$g = $null; ');
     const ps = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', s], { windowsHide: true });
     let out = ''; ps.stdout.on('data', d => out += d); ps.on('close', () => resolve(out.trim())); ps.on('error', () => resolve(''));
     setTimeout(() => { try { ps.kill(); } catch {} }, 15000);

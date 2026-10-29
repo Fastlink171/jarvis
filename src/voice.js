@@ -1,12 +1,5 @@
-// Local hearing (Whisper) + local voice (Kokoro). Bundled by esbuild into app/renderer/voice.js
-import { pipeline, env } from '@huggingface/transformers';
-import { KokoroTTS } from 'kokoro-js';
-import * as ort from 'onnxruntime-web';
-
-env.allowLocalModels = false;
-env.useBrowserCache = true;
-env.backends.onnx.wasm.wasmPaths = new URL('./ort/', location.href).href;
-env.backends.onnx.wasm.numThreads = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 2));
+// Mic, voice activity detection and audio playback run here (cheap). The speech models run in two
+// background workers (see voice-worker.js) so the window stays smooth while Jarvis listens and talks.
 
 const V = {
   hearingReady: false, hearingModel: null, hearingDevice: null,
@@ -15,43 +8,38 @@ const V = {
   onLevel: null, onSpeakingChange: null, onVadState: null, log: () => {}
 };
 
-/* ------------------------------------------------------------ GPU check */
-let gpuChecked = null;
-async function hasWebGPU() {
-  if (gpuChecked !== null) return gpuChecked;
-  try { gpuChecked = !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch { gpuChecked = false; }
-  return gpuChecked;
+/* ------------------------------------------------------------ workers */
+function makeWorker(name) {
+  const w = new Worker(new URL('./voice-worker.js', location.href).href, { type: 'module', name });
+  const calls = new Map(); let seq = 0;
+  w.onmessage = ({ data: m }) => {
+    if (m.log) { V.log(m.log); return; }
+    const c = calls.get(m.id); if (!c) return;
+    if (m.progress) { c.onProgress && c.onProgress(m.progress); return; }
+    calls.delete(m.id);
+    m.error ? c.reject(new Error(m.error)) : c.resolve(m.result);
+  };
+  w.onerror = e => { V.log(name + ' worker error: ' + (e.message || 'crashed')); for (const c of calls.values()) c.reject(new Error('voice engine crashed')); calls.clear(); };
+  return (type, payload = {}, onProgress, transfer) => new Promise((resolve, reject) => {
+    const id = ++seq; calls.set(id, { resolve, reject, onProgress });
+    w.postMessage({ id, type, ...payload }, transfer || []);
+  });
 }
+const ear = makeWorker('hearing');
+const mouth = makeWorker('voice');
 
 /* ------------------------------------------------------------ hearing */
-let asr = null;
 async function loadHearing(model = 'whisper-base.en', onProgress) {
-  if (asr && V.hearingModel === model) return true;
-  const id = 'onnx-community/' + model;
-  const tryLoad = async device => pipeline('automatic-speech-recognition', id, {
-    device,
-    dtype: device === 'webgpu' ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : 'q8',
-    progress_callback: onProgress
-  });
+  if (V.hearingReady && V.hearingModel === model) return true;
   V.hearingReady = false;
-  if (asr) { try { await asr.dispose(); } catch {} asr = null; }
-  if (await hasWebGPU()) {
-    try { asr = await tryLoad('webgpu'); V.hearingDevice = 'webgpu'; } catch (e) { V.log('hearing: webgpu failed, using cpu: ' + e.message); }
-  }
-  if (!asr) { asr = await tryLoad('wasm'); V.hearingDevice = 'cpu'; }
-  V.hearingModel = model; V.hearingReady = true;
+  const r = await ear('loadHearing', { model }, onProgress);
+  V.hearingDevice = r.device; V.hearingModel = model; V.hearingReady = true;
   return true;
 }
 const HALLU = /^\s*(\[[^\]]*\]|\([^)]*\)|thank you\.?|thanks for watching[.!]*|you\.?|bye\.?|\.+|okay\.?|so\.?|uh\.?|um\.?)\s*$/i;
-let asrBusy = Promise.resolve();
 async function transcribe(samples) {
-  if (!asr) throw new Error('Hearing is not loaded yet.');
-  const job = asrBusy.then(async () => {
-    const r = await asr(samples, { chunk_length_s: 30, stride_length_s: 5 });
-    return String(r.text || '').replace(/\s+/g, ' ').trim();
-  });
-  asrBusy = job.catch(() => {});
-  const text = await job;
+  if (!V.hearingReady) throw new Error('Hearing is not loaded yet.');
+  const text = await ear('transcribe', { samples }, null, [samples.buffer]);
   return HALLU.test(text) ? '' : text;
 }
 
@@ -159,20 +147,17 @@ async function setContinuous(on, cb) {
 }
 
 /* ------------------------------------------------------------ voice */
-let tts = null, playCtx = null, playing = null, queue = [], qRunning = false, genId = 0;
+let playCtx = null, playing = null, queue = [], qRunning = false, genId = 0, voiceList = [];
 const MALE_VOICES = ['bm_george', 'bm_lewis', 'bm_daniel', 'bm_fable', 'am_michael', 'am_adam', 'am_eric', 'am_liam', 'am_onyx', 'am_echo', 'am_puck', 'am_fenrir'];
 async function loadVoice(onProgress) {
-  if (tts) return true;
-  const id = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-  // CPU (q8) keeps the graphics card free for the AI brain and is plenty fast for speech.
-  tts = await KokoroTTS.from_pretrained(id, { dtype: 'q8', device: 'wasm', progress_callback: onProgress });
-  V.voiceDevice = 'cpu'; V.voiceReady = true;
+  if (V.voiceReady) return true;
+  const r = await mouth('loadVoice', {}, onProgress);
+  voiceList = r.voices || []; V.voiceDevice = r.device; V.voiceReady = true;
   return true;
 }
 function listVoices() {
-  if (!tts || !tts.voices) return MALE_VOICES.map(id => ({ id, name: id }));
-  const all = Object.entries(tts.voices).map(([id, v]) => ({ id, name: (v && v.name) || id, gender: v && v.gender, lang: v && v.language }));
-  return all.filter(v => /^[ab]m_/.test(v.id) || /male/i.test(v.gender || '') && !/female/i.test(v.gender || ''));
+  if (!voiceList.length) return MALE_VOICES.map(id => ({ id, name: id }));
+  return voiceList.filter(v => /^[ab]m_/.test(v.id) || (/male/i.test(v.gender || '') && !/female/i.test(v.gender || '')));
 }
 function setSpeaking(on) { if (V.speaking === on) return; V.speaking = on; if (!on) mutedUntil = performance.now() + 400; V.onSpeakingChange && V.onSpeakingChange(on); }
 
@@ -201,7 +186,7 @@ async function runQueue() {
     const item = queue.shift();
     if (item.gen !== genId) { item.done && item.done(); continue; }
     setSpeaking(true);
-    const useKokoro = item.opts.engine !== 'windows' && tts;
+    const useKokoro = item.opts.engine !== 'windows' && V.voiceReady;
     try {
       if (useKokoro) {
         const audio = pending && pending.text === item.text ? await pending.p : await synth(item);
@@ -215,9 +200,8 @@ async function runQueue() {
   }
   qRunning = false; setSpeaking(false);
 }
-async function synth(item) {
-  const a = await tts.generate(item.text, { voice: item.opts.voice || 'bm_george', speed: item.opts.speed || 1 });
-  return { samples: a.audio, rate: a.sampling_rate };
+function synth(item) {
+  return mouth('synth', { text: item.text, voice: item.opts.voice || 'bm_george', speed: item.opts.speed || 1 });
 }
 function play({ samples, rate }) {
   return new Promise(res => {
@@ -254,11 +238,7 @@ function stopSpeaking() {
 }
 
 // self-test of the speech runtime (used by diagnostics)
-async function selfTest(bytes, device = 'wasm') {
-  const sess = await ort.InferenceSession.create(bytes, { executionProviders: [device] });
-  const out = await sess.run({ x: new ort.Tensor('float32', new Float32Array([1, 2]), [2]) });
-  return Array.from(out.y.data);
-}
-Object.assign(V, { selfTest, hasWebGPU, loadHearing, transcribe, startMic, stopMic, listenOnce, cancelListen, setContinuous, loadVoice, listVoices, speak, stopSpeaking, splitSentences, MALE_VOICES });
+function selfTest(bytes, device = 'wasm') { return ear('selfTest', { bytes, device }); }
+Object.assign(V, { selfTest, loadHearing, transcribe, startMic, stopMic, listenOnce, cancelListen, setContinuous, loadVoice, listVoices, speak, stopSpeaking, splitSentences, MALE_VOICES });
 window.JarvisVoice = V;
 window.dispatchEvent(new Event('jarvis-voice-ready'));

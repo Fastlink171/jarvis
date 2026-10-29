@@ -173,3 +173,8 @@ code{color:var(--acc2);background:rgba(0,0,0,.35);padding:1px 5px}
 .tb{padding:4px 7px;letter-spacing:.1em}
 @media (max-width:1350px){.tb .ic{display:none}.sep{width:4px}}
 @media (max-width:1200px){#tbGpu,#tbEar{display:none}}
+
+/* Balanced/Low quality: no live glass blur (it re-blurs the animated background every frame) */
+.noblur .panel,.noblur .tb,.noblur .badge,.noblur .wakepill,.noblur .drawer,.noblur .modal,.noblur .boot,.noblur .setup{backdrop-filter:none}
+.noblur .panel{background:rgba(6,13,22,.74)}
+.noblur .tb{background:rgba(6,13,22,.8)}

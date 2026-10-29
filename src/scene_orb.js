@@ -3,7 +3,7 @@ const scene = $('#scene'), sx = scene.getContext('2d');
 let bgImg = null, motes = [];
 function rnd(seed){ return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
 function buildScene(){
-  const W = innerWidth, H = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+  const W = innerWidth, H = innerHeight, dpr = Math.min(devicePixelRatio || 1, Q.dpr);
   scene.width = W * dpr; scene.height = H * dpr;
   const c = document.createElement('canvas'); c.width = W * dpr; c.height = H * dpr;
   const x = c.getContext('2d'); x.scale(dpr, dpr); const R = rnd(7);
@@ -52,15 +52,23 @@ function buildScene(){
   bgImg = c;
   motes = Array.from({ length: Math.round(W * H / 26000) }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() < .25 ? 4 + Math.random() * 7 : 1 + Math.random() * 2.5, vx: (Math.random() - .5) * .12, vy: -.05 - Math.random() * .18, p: Math.random() * 7 }));
 }
+const moteSprite = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(190,235,255,1)'); g.addColorStop(.35, 'rgba(150,215,245,.5)'); g.addColorStop(1, 'rgba(150,215,245,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64); return c;
+})();
 function drawScene(t){
   const W = innerWidth, H = innerHeight, dpr = scene.width / W;
   sx.setTransform(1, 0, 0, 1, 0, 0); sx.drawImage(bgImg, 0, 0); sx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  for (const m of motes) {
-    m.x += m.vx; m.y += m.vy; if (m.y < -20) { m.y = H + 20; m.x = Math.random() * W; } if (m.x < -20) m.x = W + 20; if (m.x > W + 20) m.x = -20;
-    const a = (.35 + .35 * Math.sin(t / 900 + m.p)) * (m.r > 4 ? .35 : .9);
-    const g = sx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.r * 2.4);
-    g.addColorStop(0, `rgba(190,235,255,${a})`); g.addColorStop(.35, `rgba(150,215,245,${a * .5})`); g.addColorStop(1, 'rgba(150,215,245,0)');
-    sx.fillStyle = g; sx.beginPath(); sx.arc(m.x, m.y, m.r * 2.4, 0, 7); sx.fill();
+  if (Q.motes) {
+    const step = Math.min(3, (t - (drawScene.last || t)) / 16.7 || 1); drawScene.last = t;
+    for (const m of motes) {
+      m.x += m.vx * step; m.y += m.vy * step; if (m.y < -20) { m.y = H + 20; m.x = Math.random() * W; } if (m.x < -20) m.x = W + 20; if (m.x > W + 20) m.x = -20;
+      sx.globalAlpha = (.35 + .35 * Math.sin(t / 900 + m.p)) * (m.r > 4 ? .35 : .9);
+      const d = m.r * 4.8; sx.drawImage(moteSprite, m.x - d / 2, m.y - d / 2, d, d);
+    }
+    sx.globalAlpha = 1;
   }
 }
 
@@ -69,7 +77,7 @@ const orb = $('#orb'), ox = orb.getContext('2d');
 const dots = [];
 for (let i = 1; i < 26; i++) { const phi = i / 26 * Math.PI, n = Math.round(64 * Math.sin(phi)); for (let k = 0; k < n; k++) { const th = k / n * Math.PI * 2; dots.push([Math.sin(phi) * Math.cos(th), Math.cos(phi), Math.sin(phi) * Math.sin(th), Math.random()]); } }
 function drawOrb(t){
-  const dpr = devicePixelRatio || 1, W = orb.clientWidth, H = orb.clientHeight;
+  const dpr = Math.min(devicePixelRatio || 1, Q.dpr), W = orb.clientWidth, H = orb.clientHeight;
   if (orb.width !== W * dpr || orb.height !== H * dpr) { orb.width = W * dpr; orb.height = H * dpr; }
   ox.setTransform(dpr, 0, 0, dpr, 0, 0); ox.clearRect(0, 0, W, H);
   const cx = W / 2, cy = H * .47, R = Math.min(W * .5, H) * .34, sec = t / 1000;
@@ -85,15 +93,17 @@ function drawOrb(t){
 
   const ay = sec * (.18 + lv * .7), ax = .38;
   const sy = Math.sin(ay), cyy = Math.cos(ay), sxx = Math.sin(ax), cxx = Math.cos(ax);
+  ox.fillStyle = 'rgb(225,242,255)';
   for (const d of dots) {
     const [x, y, z, n] = d;
     const x1 = x * cyy - z * sy, z1 = x * sy + z * cyy, y1 = y * cxx - z1 * sxx, z2 = y * sxx + z1 * cxx;
     const wob = 1 + lv * .1 * Math.sin(n * 30 + sec * 7), persp = 1 / (1.7 - z2 * .45), rr = R * wob * persp * 1.62;
     const a = .08 + (z2 + 1) * .42;
-    ox.fillStyle = `rgba(225,242,255,${a})`;
+    ox.globalAlpha = Math.min(1, a);
     const s = (1 + (z2 + 1) * .55) * (n > .985 ? 1.8 : 1);
     ox.fillRect(cx + x1 * rr - s / 2, cy + y1 * rr - s / 2, s, s);
-  }
+  }  ox.globalAlpha = 1;
+
   // thin ring + ticks
   ox.strokeStyle = 'rgba(200,225,245,.18)'; ox.lineWidth = 1; ox.beginPath(); ox.arc(cx, cy, R * 1.25, 0, 7); ox.stroke();
   for (let i = 0; i < 64; i++) {
@@ -103,12 +113,13 @@ function drawOrb(t){
   }
   // signature bright arc
   const base = -0.9 + Math.sin(sec * .4) * .25 + (S.thinking ? sec * 2.5 : 0);
-  ox.lineCap = 'round'; ox.shadowColor = `rgba(${tint},.9)`; ox.shadowBlur = 14;
+  ox.lineCap = 'round';
+  ox.strokeStyle = `rgba(${tint},.12)`; ox.lineWidth = 16 + lv * 6; ox.beginPath(); ox.arc(cx, cy, R * 1.38, base, base + .75 + lv * .6); ox.stroke();
+  ox.strokeStyle = `rgba(${tint},.22)`; ox.lineWidth = 9 + lv * 4; ox.beginPath(); ox.arc(cx, cy, R * 1.38, base, base + .75 + lv * .6); ox.stroke();
   ox.strokeStyle = `rgba(${tint},${.85})`; ox.lineWidth = 4 + lv * 3;
   ox.beginPath(); ox.arc(cx, cy, R * 1.38, base, base + .75 + lv * .6); ox.stroke();
   ox.lineWidth = 1.5; ox.strokeStyle = `rgba(${tint},.35)`;
   ox.beginPath(); ox.arc(cx, cy, R * 1.38, base + Math.PI, base + Math.PI + .35); ox.stroke();
-  ox.shadowBlur = 0;
   // voice bars
   if (lv > .03) for (let i = 0; i < 90; i++) {
     const a = i / 90 * Math.PI * 2, v = analyser && S.listening ? meterData[(i * 2) % meterData.length] / 255 : lv * (.5 + .5 * Math.sin(i * 1.7 + sec * 9));

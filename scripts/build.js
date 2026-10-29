@@ -2,7 +2,9 @@
 const fs = require('fs'), path = require('path'), { execSync } = require('child_process');
 const R = p => path.join(__dirname, '..', p);
 
-execSync('npx esbuild src/voice.js --bundle --format=esm --platform=browser --target=chrome130 --minify --outfile=app/renderer/voice.js --log-level=warning', { cwd: R(''), stdio: 'inherit' });
+const esb = (src, out) => execSync(`npx esbuild ${src} --bundle --format=esm --platform=browser --target=chrome130 --minify --outfile=${out} --log-level=warning`, { cwd: R(''), stdio: 'inherit' });
+esb('src/voice.js', 'app/renderer/voice.js');
+esb('src/voice-worker.js', 'app/renderer/voice-worker.js');
 
 let orb = fs.readFileSync(R('src/scene_orb.js'), 'utf8');
 const rep = [
