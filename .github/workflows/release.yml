@@ -38,6 +38,14 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: PC-control helper self-test
+        if: steps.ver.outputs.new == 'true'
+        shell: pwsh
+        run: |
+          $out = powershell.exe -NoProfile -ExecutionPolicy Bypass -File app/helper.ps1 -SelfTest 2>&1 | Out-String
+          Write-Host $out
+          if ($out -notmatch 'SELFTEST OK') { $msg = ($out -replace '%','%25' -replace "`r",'' -replace "`n",'%0A'); Write-Host "::error title=helper::$msg"; exit 1 }
+
       - uses: actions/setup-node@v5
         if: steps.ver.outputs.new == 'true'
         with:

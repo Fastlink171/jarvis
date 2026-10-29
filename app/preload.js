@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const inv = ch => (...a) => ipcRenderer.invoke(ch, ...a);
-const EVENTS = new Set(['chat:chunk', 'pull:progress', 'hotkey:talk', 'update:status']);
+const EVENTS = new Set(['chat:chunk', 'pull:progress', 'hotkey:talk', 'update:status', 'tray:wake', 'win:visible']);
 
 contextBridge.exposeInMainWorld('jarvis', {
   info: inv('app:info'),
@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('jarvis', {
   openExternal: inv('app:openExternal'),
   showWindow: inv('win:show'),
   flash: inv('win:flash'),
+  isVisible: inv('win:visible'),
+  pc: inv('pc:do'),
   ollama: {
     version: inv('ollama:version'), tags: inv('ollama:tags'), ps: inv('ollama:ps'), show: inv('ollama:show'),
     start: inv('ollama:start'), pull: inv('ollama:pull'), pullCancel: inv('ollama:pullCancel'), remove: inv('ollama:delete'),

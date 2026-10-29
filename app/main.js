@@ -4,7 +4,7 @@
   Everything runs on this PC: the AI brain is Ollama (http://127.0.0.1:11434),
   speech recognition and the voice run inside the window (Whisper + Kokoro).
 */
-const { app, BrowserWindow, ipcMain, shell, protocol, net, session, globalShortcut, Tray, Menu, nativeImage, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, protocol, net, session, globalShortcut, Tray, Menu, nativeImage, safeStorage, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -26,8 +26,11 @@ if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
 
 let win = null, tray = null, quitting = false;
 const prefsFile = () => path.join(app.getPath('userData'), 'prefs.json');
-let prefs = { tray: false, hotkey: 'CommandOrControl+Shift+J' };
+let prefs = { tray: true, hotkey: 'CommandOrControl+Shift+J' };
 try { Object.assign(prefs, JSON.parse(fs.readFileSync(prefsFile(), 'utf8'))); } catch {}
+if (!prefs.bg14) { prefs.tray = true; prefs.bg14 = true; }          // 1.4.0: keep running in the background by default
+const START_HIDDEN = process.argv.includes('--hidden');
+let wakeOn = false;
 const savePrefs = () => { try { fs.writeFileSync(prefsFile(), JSON.stringify(prefs, null, 2)); } catch {} };
 
 /* ------------------------------------------------------------------ window */
@@ -47,30 +50,45 @@ function createWindow() {
     }
   });
   win.loadURL('app://jarvis/index.html');
-  win.once('ready-to-show', () => win.show());
-  win.on('close', e => { if (prefs.tray && !quitting) { e.preventDefault(); win.hide(); } });
+  win.once('ready-to-show', () => { if (!START_HIDDEN) win.show(); });
+  win.on('close', e => {
+    if (prefs.tray && !quitting) {
+      e.preventDefault(); win.hide();
+      if (!prefs.toldTray) {
+        prefs.toldTray = true; savePrefs();
+        try { new Notification({ title: 'Jarvis is still running', body: 'He’s in the system tray. Say “Jarvis” (with wake word on) or press Ctrl+Shift+J. Right-click the tray icon to quit.', icon: ICON }).show(); } catch {}
+      }
+    }
+  });
+  const vis = () => send('win:visible', win.isVisible() && !win.isMinimized());
+  ['show', 'hide', 'minimize', 'restore'].forEach(ev => win.on(ev, vis));
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('app://')) { e.preventDefault(); if (/^https?:/i.test(url)) shell.openExternal(url); } });
 }
 function showWindow() { if (!win) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+function trayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show Jarvis', click: showWindow },
+    { label: 'Talk to Jarvis   (Ctrl+Shift+J)', click: () => win.webContents.send('hotkey:talk') },
+    { label: 'Listen for “Jarvis”', type: 'checkbox', checked: wakeOn, click: m => win.webContents.send('tray:wake', m.checked) },
+    { type: 'separator' },
+    { label: 'Quit Jarvis', click: () => { quitting = true; app.quit(); } }
+  ]));
+  tray.setToolTip(wakeOn ? 'Jarvis — listening for “Jarvis”' : 'Jarvis');
+}
 
 function setupTray() {
   if (tray) return;
   try {
     tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
-    tray.setToolTip('Jarvis');
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Show Jarvis', click: showWindow },
-      { label: 'Talk to Jarvis', click: () => { showWindow(); win.webContents.send('hotkey:talk'); } },
-      { type: 'separator' },
-      { label: 'Quit', click: () => { quitting = true; app.quit(); } }
-    ]));
+    trayMenu();
     tray.on('click', showWindow);
   } catch {}
 }
 function registerHotkey() {
   globalShortcut.unregisterAll();
-  try { globalShortcut.register(prefs.hotkey, () => { showWindow(); win && win.webContents.send('hotkey:talk'); }); } catch {}
+  try { globalShortcut.register(prefs.hotkey, () => { if (win && win.isVisible() && !win.isMinimized()) win.focus(); win && win.webContents.send('hotkey:talk'); }); } catch {}
 }
 
 app.on('second-instance', showWindow);
@@ -187,12 +205,14 @@ ipcMain.handle('app:info', () => ({
 }));
 ipcMain.handle('app:prefs', (e, p) => {
   if ('tray' in p) prefs.tray = !!p.tray;
-  if ('login' in p && IS_WIN) app.setLoginItemSettings({ openAtLogin: !!p.login });
+  if ('login' in p && IS_WIN) app.setLoginItemSettings({ openAtLogin: !!p.login, args: ['--hidden'] });
+  if ('wake' in p) { wakeOn = !!p.wake; trayMenu(); }
   savePrefs();
   return true;
 });
 ipcMain.handle('app:openExternal', (e, url) => { if (/^https?:\/\//i.test(url)) shell.openExternal(url); });
 ipcMain.handle('win:show', () => showWindow());
+ipcMain.handle('win:visible', () => !!(win && win.isVisible() && !win.isMinimized()));
 ipcMain.handle('win:flash', () => { if (win && !win.isFocused()) win.flashFrame(true); });
 
 /* ------------------------------------------------------------------ Ollama */
@@ -477,3 +497,50 @@ ipcMain.handle('web:json', async (e, url) => {
   try { const r = await net.fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } }); if (!r.ok) throw new Error('HTTP ' + r.status); return { ok: true, data: await r.json() }; }
   catch (err) { return { ok: false, error: err.message }; }
 });
+
+/* ------------------------------------------------------------------ PC control helper (media, volume, keys, windows) */
+let helper = null, helperBuf = '', helperSeq = 0, helperReady = null;
+const helperCalls = new Map();
+function startHelper() {
+  if (!IS_WIN) return Promise.reject(new Error('PC control is only available on Windows.'));
+  if (helper && helperReady) return helperReady;
+  const file = path.join(app.getPath('userData'), 'jarvis-helper.ps1');
+  fs.writeFileSync(file, '\ufeff' + fs.readFileSync(path.join(__dirname, 'helper.ps1'), 'utf8'), 'utf8');
+  helper = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], { windowsHide: true });
+  helperBuf = '';
+  helperReady = new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('PC control helper did not start.')), 20000);
+    helper.stdout.on('data', d => {
+      helperBuf += d.toString('utf8');
+      let i;
+      while ((i = helperBuf.indexOf('\n')) >= 0) {
+        const line = helperBuf.slice(0, i).trim(); helperBuf = helperBuf.slice(i + 1);
+        if (!line) continue;
+        let m; try { m = JSON.parse(line); } catch { continue; }
+        if (m.ready) { clearTimeout(t); resolve(true); continue; }
+        const c = helperCalls.get(m.id); if (c) { helperCalls.delete(m.id); c(m); }
+      }
+    });
+    let err = '';
+    helper.stderr.on('data', d => { err += d.toString('utf8'); });
+    helper.on('exit', () => {
+      clearTimeout(t); reject(new Error('PC control helper stopped. ' + parseClixml(err.trim()).slice(0, 300)));
+      for (const c of helperCalls.values()) c({ ok: false, error: 'PC control helper stopped.' });
+      helperCalls.clear(); helper = null; helperReady = null;
+    });
+  });
+  helperReady.catch(() => { helper = null; helperReady = null; });
+  return helperReady;
+}
+async function pc(cmd, args = {}) {
+  try { await startHelper(); } catch (e) { return { ok: false, error: e.message }; }
+  return new Promise(resolve => {
+    const id = ++helperSeq;
+    const t = setTimeout(() => { helperCalls.delete(id); resolve({ ok: false, error: 'PC control timed out.' }); }, 20000);
+    helperCalls.set(id, m => { clearTimeout(t); resolve(m.ok ? { ok: true, ...(m.result || {}) } : { ok: false, error: m.error }); });
+    helper.stdin.write(JSON.stringify({ id, cmd, ...args }) + '\n');
+  });
+}
+ipcMain.handle('pc:do', (e, cmd, args) => pc(String(cmd), args || {}));
+app.whenReady().then(() => { if (IS_WIN) setTimeout(() => startHelper().catch(() => {}), 4000); });
+app.on('will-quit', () => { try { helper && helper.kill(); } catch {} });

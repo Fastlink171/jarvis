@@ -23,7 +23,7 @@ const MODELS = [
 /* ============================================================ state */
 const S = {
   info:{}, name:store.get('name', ''), ollama:false, models:[], model:store.get('model', ''), caps:[], modelSize:0,
-  deep:store.get('deep', false), listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
+  deep:store.get('deep', false), duck:store.get('duck', true), visible:true, listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
   pending:null, history:[], run:0, chatId:null,
   confirm:store.get('confirm', true), autoSafe:store.get('autoSafe', true),
   voice:store.get('voice', 'bm_george'), rate:store.get('rate', 1), ear:store.get('ear', 'whisper-base.en'), sens:store.get('sens', 0.5),
@@ -105,10 +105,16 @@ async function talk(){
   if (S.listening) { V.cancelListen(); S.listening = false; setState(); return; }
   stopVoice();
   S.listening = true; setState(); $('#heard').textContent = '';
+  earcon(true);
+  // turn loud music down while listening so Jarvis can hear you
+  let restoreVol = null;
+  if (S.duck) { const v = await J.pc('getVolume').catch(() => null); if (v && v.ok && v.volume > 30 && !v.muted) { restoreVol = v.volume; J.pc('setVolume', { level: 25 }); } }
   let text = '';
   try { text = await V.listenOnce(8000); }
   catch (e) { addMsg('sys', 'Microphone problem: ' + e.message + '. Check Windows Settings → Privacy → Microphone.'); }
+  if (restoreVol != null) J.pc('setVolume', { level: restoreVol });
   S.listening = false; setState();
+  if (!text) earcon(false);
   if (text) { $('#heard').textContent = text; setTimeout(() => $('#heard').textContent = '', 3000); onHeard(text, true); }
 }
 const WAKE = /^(?:hey |ok |okay |yo )?(?:jarvis|jervis|jarvus|jarvas|travis|jarv)\b[\s,.!?]*/i;
@@ -129,7 +135,7 @@ function onHeard(text, direct){
   handle(clean.replace(WAKE, '') || clean);
 }
 async function setWake(on){
-  S.wake = on; store.set('wake', on);
+  S.wake = on; store.set('wake', on); J.setPrefs({ wake: on });
   $('#wakePill').classList.toggle('on', on); $('#wakeTxt').textContent = on ? 'ON' : 'OFF';
   if (V && V.hearingReady) {
     try { await V.setContinuous(on, t => onHeard(t, false)); }
@@ -292,7 +298,12 @@ const TOOLS = [
   { name:'complete_task', description:'Mark a task on the list as done.', params:{ text:{ type:'string', description:'the task (or part of it)' } }, required:['text'] },
   { name:'set_timer', description:'Start a timer, or a reminder when a label is given. Jarvis will speak up when it ends.', params:{ minutes:{ type:'number' }, label:{ type:'string', description:'what to remind about (optional)' } }, required:['minutes'] },
   { name:'get_weather', description:'Current weather and 3-day forecast. Leave city empty for the user\'s saved location.', params:{ city:{ type:'string' } }, required:[] },
-  { name:'system_status', description:'CPU, memory, disk, uptime and top processes of this PC.', params:{}, required:[] }
+  { name:'system_status', description:'CPU, memory, disk, uptime and top processes of this PC.', params:{}, required:[] },
+  { name:'media_control', description:'Control music/video playing on the PC (Spotify, YouTube, any player) and the system volume. Actions: play_pause, next, previous, stop, volume_up, volume_down, mute, unmute, set_volume (with level 0-100).', params:{ action:{ type:'string', enum:['play_pause', 'next', 'previous', 'stop', 'volume_up', 'volume_down', 'mute', 'unmute', 'set_volume'] }, level:{ type:'number', description:'0-100, for set_volume' } }, required:['action'] },
+  { name:'now_playing', description:'What song is playing (Spotify) or which YouTube video is open, plus the current volume.', params:{}, required:[] },
+  { name:'window_control', description:'List open windows, or focus / minimize / maximize / restore / close one. Target is an app name ("spotify", "chrome", "notepad") or part of a window title.', params:{ action:{ type:'string', enum:['list', 'focus', 'minimize', 'maximize', 'restore', 'close'] }, target:{ type:'string' } }, required:['action'] },
+  { name:'press_keys', description:'Press keyboard shortcuts in an app, e.g. "ctrl+s", "alt+tab", "ctrl+shift+esc", "space", "f5". Several in order: "ctrl+a, ctrl+c". Give window to switch to that app first (otherwise keys go to whatever is in front).', params:{ keys:{ type:'string' }, window:{ type:'string', description:'app or window to switch to first' }, times:{ type:'number' } }, required:['keys'] },
+  { name:'type_text', description:'Type text into an app as if on the keyboard. Give window to switch to that app first.', params:{ text:{ type:'string' }, window:{ type:'string' }, press_enter:{ type:'boolean' } }, required:['text'] }
 ];
 const toolSchemas = () => TOOLS.map(t => ({ type:'function', function:{ name:t.name, description:t.description, parameters:{ type:'object', properties:t.params, required:t.required } } }));
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n) + '\n…(truncated)' : s; };
@@ -368,6 +379,34 @@ async function runTool(name, args){
         if (!args.city) { S.weather = w; loadWeather(); }
         return JSON.stringify(w);
       }
+      case 'media_control': {
+        const a = String(args.action || '');
+        const r = await mediaAction(a, args.level);
+        return r.ok ? JSON.stringify({ done: a, volume: r.volume, muted: r.muted }) : 'Failed: ' + r.error;
+      }
+      case 'now_playing': {
+        const [np, v] = await Promise.all([J.pc('nowPlaying'), J.pc('getVolume')]);
+        if (!np.ok) return 'Failed: ' + np.error;
+        return JSON.stringify({ app: np.app, playing: np.playing, title: np.title, volume: v.volume, muted: v.muted });
+      }
+      case 'window_control': {
+        const a = String(args.action || 'list');
+        if (a === 'list') { const r = await J.pc('windows'); return r.ok ? JSON.stringify(r.windows.map(w => ({ app: w.app, title: w.title, minimized: w.minimized }))) : 'Failed: ' + r.error; }
+        if (a === 'close' && S.confirm) { const ok = await confirmAction(`I’d like to close ${args.target}. Unsaved work in it could be lost.`, 'Close window: ' + args.target); if (!ok) return 'The user declined.'; }
+        toolLine('▣', a[0].toUpperCase() + a.slice(1) + ' ' + args.target);
+        const r = await J.pc('window', { action: a, target: args.target }); countAction();
+        return r.ok ? `${a}: ${r.window} (${r.app})` : 'Failed: ' + r.error;
+      }
+      case 'press_keys': {
+        toolLine('⌨', 'Pressing ' + args.keys + (args.window ? ' in ' + args.window : ''));
+        const r = await J.pc('keys', { keys: args.keys, target: args.window || '', times: args.times || 1 }); countAction();
+        return r.ok ? 'Pressed ' + args.keys : 'Failed: ' + r.error;
+      }
+      case 'type_text': {
+        toolLine('⌨', 'Typing ' + clip(args.text, 60).replace(/\n/g, ' ') + (args.window ? ' in ' + args.window : ''));
+        const r = await J.pc('type', { text: args.text, target: args.window || '', enter: !!args.press_enter }); countAction();
+        return r.ok ? 'Typed ' + String(args.text).length + ' characters.' : 'Failed: ' + r.error;
+      }
       case 'system_status': {
         const s = await J.stats(); renderStats(s);
         return JSON.stringify({ cpu: s.cpu + '%', memory: `${s.memUsed}/${s.memTotal} GB (${s.mem}%)`, disk_c: `${s.diskFree} GB free of ${s.diskTotal} GB`, uptime: s.uptime, gpu: s.gpu, top_processes_MB: s.procs });
@@ -389,7 +428,7 @@ PERSONALITY: calm, capable, quietly witty, British, loyal. Address the user as "
 
 HOW YOU WORK:
 - You have tools. Use them instead of guessing. For anything about current events, prices, people, products, sports, or facts you are not certain of: call web_search, then read_webpage on the best one or two results, then answer. Never invent facts, numbers or URLs.
-- To act on the PC use open (apps, files, sites) or run_powershell. Think about what the user actually wants and do it in as few steps as possible. Check results and fix mistakes.
+- To act on the PC: open (apps, files, sites), media_control and now_playing (music, video, volume), window_control (switch to, minimize, close windows), press_keys and type_text (keyboard shortcuts and typing into any app — pass window so it goes to the right app), or run_powershell for anything else. Think about what the user actually wants and do it in as few steps as possible. Check results and fix mistakes.
 - When the user tells you something about themselves worth keeping, call remember.
 - Prefer safe, read-only commands. Never delete files, change security settings or do anything destructive unless the user clearly asked for it.
 - PowerShell is Windows PowerShell 5.1: no "&&", use ";". Keep command output small (Select-Object -First, Format-Table -AutoSize).
@@ -500,6 +539,52 @@ const safeJSON = s => { try { return JSON.parse(s); } catch { return {}; } };
 function pushUser(text){ S.history.push({ role:'user', content:text }); trimHistory(); }
 function interrupt(){ S.run++; if (S.chatId) J.ollama.abort(S.chatId); stopVoice(); S.thinking = false; setState(); }
 
+/* ============================================================ media / PC control */
+async function mediaAction(a, level){
+  if (a === 'set_volume') return J.pc('setVolume', { level: +level || 0 });
+  if (a === 'unmute') return J.pc('setMute', { on: false });
+  if (a === 'mute') return J.pc('setMute', { on: true });
+  if (a === 'volume_up' || a === 'volume_down') { const v = await J.pc('getVolume'); if (v.ok && v.volume != null) return J.pc('setVolume', { level: Math.max(0, Math.min(100, v.volume + (a === 'volume_up' ? 10 : -10))) }); return J.pc('media', { action: a, times: 5 }); }
+  return J.pc('media', { action: a });
+}
+async function quickMedia(t){
+  let m;
+  const MUSIC = '(?: (?:the |my |this )?(?:music|song|track|spotify|video|youtube|playback|audio|it))?';
+  if (new RegExp('^(?:pause|stop|hold)' + MUSIC + '(?: (?:please|for a sec(?:ond)?|for now))?$').test(t)) {
+    const np = await J.pc('nowPlaying');
+    if (np.ok && np.app === 'Spotify' && np.playing === false) return 'It’s already paused.';
+    const r = await J.pc('media', { action: 'play_pause' }); countAction(); return r.ok ? '' : 'I couldn’t reach your media controls: ' + r.error;
+  }
+  if (new RegExp('^(?:play|resume|unpause|continue|start)' + MUSIC + '(?: (?:again|please))?$').test(t) || /^(?:play|resume) (?:the )?music$/.test(t)) {
+    const np = await J.pc('nowPlaying');
+    if (np.ok && np.app === 'Spotify' && np.playing === true) return 'It’s already playing.';
+    const r = await J.pc('media', { action: 'play_pause' }); countAction(); return r.ok ? '' : 'I couldn’t reach your media controls: ' + r.error;
+  }
+  if (/^(?:next|skip)(?: (?:the |this )?(?:song|track|one|it))?(?: please)?$|^(?:play )?(?:the )?next (?:song|track)$|^skip (?:this|it)$/.test(t)) { const r = await J.pc('media', { action: 'next' }); countAction(); return r.ok ? '' : r.error; }
+  if (/^(?:previous|prev|last|go back)(?: (?:song|track))?$|^(?:play )?(?:the )?(?:previous|last) (?:song|track)(?: again)?$/.test(t)) { const r = await J.pc('media', { action: 'previous' }); countAction(); return r.ok ? '' : r.error; }
+  if ((m = t.match(/^(?:set |turn )?(?:the )?volume (?:to |at )?(\d{1,3})(?: ?%| percent)?$|^(?:turn it |put it )?(?:to )?(\d{1,3})(?: ?%| percent) volume$/))) { const lv = +(m[1] || m[2]); const r = await mediaAction('set_volume', lv); countAction(); return r.ok ? `Volume at ${r.volume} percent.` : r.error; }
+  if (/^(?:turn (?:it|the (?:volume|music)) up|volume up|louder|(?:make it )?louder(?: please)?|crank it up)$/.test(t)) { const r = await mediaAction('volume_up'); countAction(); return r.ok ? '' : r.error; }
+  if (/^(?:turn (?:it|the (?:volume|music)) down|volume down|quieter|(?:make it )?quieter(?: please)?|lower (?:the )?volume)$/.test(t)) { const r = await mediaAction('volume_down'); countAction(); return r.ok ? '' : r.error; }
+  if (/^mute(?: (?:it|the (?:sound|volume|music|pc|computer)))?$/.test(t)) { const r = await mediaAction('mute'); countAction(); return r.ok ? '' : r.error; }
+  if (/^unmute(?: (?:it|the (?:sound|volume|music|pc|computer)))?$/.test(t)) { const r = await mediaAction('unmute'); countAction(); return r.ok ? '' : r.error; }
+  if (/^(?:what(?:'?s| is) (?:this|playing|this song|the song|that song)|what song is (?:this|playing|that)|now playing|who(?:'?s| is) (?:this|singing|this by))$/.test(t)) {
+    const np = await J.pc('nowPlaying');
+    if (!np.ok) return 'I can’t see your media player right now.';
+    if (np.app === 'Spotify') return np.playing ? `This is ${np.title.replace(' - ', ' — ')}.` : 'Spotify is paused at the moment.';
+    if (np.app === 'YouTube') return `You have ${np.title} open on YouTube.`;
+    return 'I don’t see anything playing in Spotify or YouTube.';
+  }
+  return null;   // not a media command
+}
+function earcon(up = true){
+  try {
+    const c = new AudioContext(), o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(up ? 660 : 880, c.currentTime); o.frequency.exponentialRampToValueAtTime(up ? 990 : 590, c.currentTime + .12);
+    g.gain.setValueAtTime(.0001, c.currentTime); g.gain.exponentialRampToValueAtTime(.08, c.currentTime + .02); g.gain.exponentialRampToValueAtTime(.0001, c.currentTime + .18);
+    o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + .2); setTimeout(() => c.close(), 400);
+  } catch {}
+}
+
 /* ============================================================ quick commands (instant, no AI needed) */
 const APPS = { 'notepad':'notepad', 'calculator':'calc', 'calc':'calc', 'file explorer':'explorer', 'explorer':'explorer', 'files':'explorer', 'task manager':'taskmgr', 'paint':'mspaint', 'settings':'ms-settings:', 'control panel':'control', 'chrome':'chrome', 'google chrome':'chrome', 'edge':'msedge', 'command prompt':'cmd', 'powershell':'powershell', 'terminal':'wt', 'word':'winword', 'excel':'excel', 'powerpoint':'powerpnt', 'outlook':'outlook', 'spotify':'spotify:', 'discord':'discord:', 'steam':'steam:', 'vs code':'code', 'visual studio code':'code', 'snipping tool':'snippingtool', 'camera':'microsoft.windows.camera:', 'store':'ms-windows-store:', 'downloads':'shell:Downloads', 'documents':'shell:Personal', 'desktop':'shell:Desktop' };
 const SITES = { youtube:'https://www.youtube.com', google:'https://www.google.com', gmail:'https://mail.google.com', github:'https://github.com', netflix:'https://www.netflix.com', reddit:'https://www.reddit.com', amazon:'https://www.amazon.com', twitch:'https://www.twitch.tv', maps:'https://maps.google.com' };
@@ -528,6 +613,8 @@ async function handle(text){
     if (target) { J.open(target); countAction(); return reply(pick(['Opening ' + name + '.', 'Right away.', 'On it.'])); }
   }
   if (/^(stop listening|go to sleep|goodbye|that'?s all)$/.test(t)) { setWake(false); return reply('Very good, sir. I’ll be here.'); }
+  const media = await quickMedia(t);
+  if (media !== null) { if (media) return reply(media); addMsg('jarvis', pick(['Done.', 'Done, sir.', 'Of course.'])); return; }
   if (/^(run|execute) /i.test(text)) { const cmd = text.replace(/^(run|execute)( the)?( command)?[: ]+/i, ''); await runPS(cmd); return speak('Done.'); }
   return think(text);
 }
@@ -746,7 +833,7 @@ function fillVoiceSelect(){
 let lastFrame = 0;
 function frame(t){
   requestAnimationFrame(frame);
-  if (document.hidden) return;
+  if (document.hidden || !S.visible) return;
   // fewer frames while the AI is thinking (it shares the graphics card) or when Jarvis isn't the active window
   let fps = Q.fps; if (S.thinking) fps = Math.min(fps, 20); if (!document.hasFocus()) fps = Math.min(fps, 10);
   if (t - lastFrame < 1000 / fps - 2) return;
@@ -783,6 +870,10 @@ function wire(){
     if (e.key === 'Escape') { interrupt(); if (V) V.cancelListen(); S.listening = false; setState(); $('#modal').classList.remove('show'); $('#drawer').classList.remove('show'); }
   });
   J.on('hotkey:talk', () => talk());
+  J.on('tray:wake', on => setWake(!!on));
+  J.on('win:visible', v => { S.visible = v; });
+  J.isVisible().then(v => { S.visible = v; });
+  $('#duck').checked = S.duck; $('#duck').onchange = e => { S.duck = e.target.checked; store.set('duck', S.duck); };
   $('#wakePill').onclick = () => setWake(!S.wake);
   $('#newSess').onclick = () => { interrupt(); S.history = []; S.session = 0; $('#log').innerHTML = ''; renderCounters(); addMsg('sys', 'New session started. Memories are kept.'); };
   $('#stopVoice').onclick = interrupt;
@@ -912,8 +1003,8 @@ async function boot(){
   let rz = 0; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { buildScene(); renderCounters(); }, 200); });
   requestAnimationFrame(frame);
   tick(); setInterval(tick, 1000);
-  setInterval(() => { if (!document.hidden) { drawActivity(); renderRelays(); } }, 1000);
-  pollStats(); setInterval(() => { if (!document.hidden) pollStats(); }, 5000); setInterval(() => { if (!document.hidden) pollGpu(); }, 8000);
+  setInterval(() => { if (!document.hidden && S.visible) { drawActivity(); renderRelays(); } }, 1000);
+  pollStats(); setInterval(() => { if (!document.hidden && S.visible) pollStats(); }, 5000); setInterval(() => { if (!document.hidden && S.visible) pollGpu(); }, 8000);
   if (S.city) { $('#wCity').value = S.city.name.split(',')[0]; loadWeather(); }
   loadBtc(); setInterval(loadBtc, 60000); setInterval(loadWeather, 15 * 60000);
   setInterval(async () => { const was = S.ollama; const v = await J.ollama.version(); if (v.ok !== was) { await refreshModels(); event(v.ok ? 'Ollama connected' : 'Ollama disconnected'); if (v.ok) warmUp(); } }, 6000);
