@@ -893,6 +893,17 @@ async function boot(){
     if (st.justUpdated) addMsg('sys', `Updated to version ${st.justUpdated.version}.` + (st.justUpdated.notes ? ' What’s new: ' + st.justUpdated.notes.slice(0, 500) : ''));
   });
   $('#updCheck').onclick = () => J.update.check().then(renderUpdate);
+  const showKey = has => { $('#keyState').textContent = has ? 'SAVED ✓' : 'NOT SET'; $('#keyState').style.color = has ? 'var(--ok)' : 'var(--warn)'; };
+  J.update.state().then(st => showKey(st.hasKey));
+  $('#updKeySave').onclick = async () => {
+    const k = $('#updKey').value.trim();
+    $('#updKeyTxt').textContent = k ? 'Checking the key with GitHub…' : 'Removing key…';
+    const r = await J.update.setKey(k);
+    $('#updKey').value = '';
+    if (r.ok) { showKey(!r.cleared); $('#updKeyTxt').textContent = r.cleared ? 'Key removed.' : 'Key works and is saved. Jarvis will use it to check for updates.'; event(r.cleared ? 'update key removed' : 'update key saved'); }
+    else $('#updKeyTxt').textContent = r.error;
+  };
+  $('#updKey').onkeydown = e => { if (e.key === 'Enter') $('#updKeySave').click(); };
   $('#updInstall').onclick = () => J.update.install();
 
   const lines = ['initialising neural interface ........ OK', 'locating AI engine ................... ', 'loading memory banks ................. ' + S.memories.length + ' ENTRIES', 'calibrating voice synthesis .......... OK', '', 'ALL SYSTEMS READY.'];

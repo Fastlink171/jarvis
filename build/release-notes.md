@@ -1,2 +1,1 @@
-- Jarvis now updates himself. New versions download in the background and install when you restart him.
-- New Settings section: Updates (version, check now, restart & update).
+- New: Settings → Updates → GitHub update key. Paste your own read-only key so Jarvis can keep updating after the code repository is made private. The key is stored encrypted on your PC only.

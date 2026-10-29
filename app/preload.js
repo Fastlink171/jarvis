@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   ps: { run: inv('ps:run'), cwd: inv('ps:cwd') },
   fs: { read: inv('fs:read'), write: inv('fs:write'), resolve: inv('fs:resolve') },
   open: inv('open:target'),
-  update: { state: inv('update:state'), check: inv('update:check'), install: inv('update:install') },
+  update: { state: inv('update:state'), check: inv('update:check'), install: inv('update:install'), setKey: inv('update:setKey') },
   stats: inv('sys:stats'),
   web: { search: inv('web:search'), read: inv('web:read'), json: inv('web:json') },
   on(ch, cb) {

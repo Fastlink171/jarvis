@@ -4,7 +4,7 @@
   Everything runs on this PC: the AI brain is Ollama (http://127.0.0.1:11434),
   speech recognition and the voice run inside the window (Whisper + Kokoro).
 */
-const { app, BrowserWindow, ipcMain, shell, protocol, net, session, globalShortcut, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, protocol, net, session, globalShortcut, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -114,6 +114,7 @@ function setupUpdater() {
   try { ({ autoUpdater } = require('electron-updater')); } catch (e) { updateState = { state: 'error', error: e.message }; return; }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  applyFeed();
   autoUpdater.on('checking-for-update', () => setUpdate({ state: 'checking' }));
   autoUpdater.on('update-available', i => setUpdate({ state: 'downloading', version: i.version, percent: 0 }));
   autoUpdater.on('update-not-available', () => setUpdate({ state: 'latest', version: app.getVersion() }));
@@ -122,12 +123,43 @@ function setupUpdater() {
     prefs.pendingNotes = { version: i.version, notes: plain(i.releaseNotes) }; savePrefs();
     setUpdate({ state: 'ready', version: i.version, notes: plain(i.releaseNotes) });
   });
-  autoUpdater.on('error', e => setUpdate({ state: 'error', error: String(e && e.message || e).split('\n')[0].slice(0, 200) }));
+  autoUpdater.on('error', e => {
+    let msg = String(e && e.message || e).split('\n')[0].slice(0, 200);
+    if (/\b(404|401|403)\b|not found|authentication|Bad credentials/i.test(msg)) msg = getToken() ? 'GitHub refused the update key. Paste a new key in Settings → Updates.' : 'The Jarvis repository is private. Paste your GitHub update key in Settings → Updates.';
+    setUpdate({ state: 'error', error: msg });
+  });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(check, 10000);
   setInterval(check, 3 * 3600 * 1000);
 }
-ipcMain.handle('update:state', () => ({ ...updateState, current: app.getVersion(), justUpdated: takeNotes() }));
+/* private repository: the user's own read-only GitHub key, encrypted with Windows (DPAPI) */
+const REPO = { owner: 'Fastlink171', repo: 'jarvis' };
+function getToken() {
+  if (!prefs.updateKey) return '';
+  try { return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(Buffer.from(prefs.updateKey, 'base64')) : Buffer.from(prefs.updateKey, 'base64').toString(); } catch { return ''; }
+}
+function applyFeed() {
+  if (!autoUpdater) return;
+  const token = getToken();
+  if (token) autoUpdater.setFeedURL({ provider: 'github', owner: REPO.owner, repo: REPO.repo, private: true, token, releaseType: 'release' });
+  else autoUpdater.setFeedURL({ provider: 'github', owner: REPO.owner, repo: REPO.repo, releaseType: 'release' });
+}
+ipcMain.handle('update:setKey', async (e, key) => {
+  key = String(key || '').trim();
+  if (!key) { delete prefs.updateKey; savePrefs(); applyFeed(); return { ok: true, cleared: true }; }
+  // check the key can see the repository before saving it
+  try {
+    const r = await net.fetch(`https://api.github.com/repos/${REPO.owner}/${REPO.repo}`, { headers: { Authorization: 'Bearer ' + key, 'User-Agent': 'Jarvis', Accept: 'application/vnd.github+json' } });
+    if (r.status === 401) return { ok: false, error: 'GitHub says this key is invalid or expired.' };
+    if (r.status === 404 || r.status === 403) return { ok: false, error: 'This key can’t see the jarvis repository. Give it access to Fastlink171/jarvis with Contents: Read-only.' };
+    if (!r.ok) return { ok: false, error: 'GitHub answered ' + r.status + '.' };
+  } catch (err) { return { ok: false, error: 'Couldn’t reach GitHub: ' + err.message }; }
+  prefs.updateKey = (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(key) : Buffer.from(key)).toString('base64');
+  savePrefs(); applyFeed();
+  if (autoUpdater) autoUpdater.checkForUpdates().catch(() => {});
+  return { ok: true };
+});
+ipcMain.handle('update:state', () => ({ ...updateState, current: app.getVersion(), justUpdated: takeNotes(), hasKey: !!prefs.updateKey }));
 ipcMain.handle('update:check', async () => { if (!autoUpdater) return updateState; try { await autoUpdater.checkForUpdates(); } catch (e) { setUpdate({ state: 'error', error: e.message }); } return updateState; });
 ipcMain.handle('update:install', () => { if (autoUpdater && updateState.state === 'ready') { quitting = true; autoUpdater.quitAndInstall(true, true); } });
 function takeNotes() {
