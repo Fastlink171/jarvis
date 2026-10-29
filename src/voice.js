@@ -27,6 +27,38 @@ function makeWorker(name) {
 }
 const ear = makeWorker('hearing');
 const mouth = makeWorker('voice');
+const wakeW = makeWorker('wake');
+
+/* ------------------------------------------------------------ "Hey Jarvis" wake word (always-on, tiny, CPU) */
+let wakeOn = false, wakeReady = false, wakeCb = null, wakeAcc = new Float32Array(0), wakePending = 0, wakeCooldown = 0;
+const recent = [];                                     // last ~0.6 s of mic frames, to catch speech right after the wake word
+V.wakeThreshold = 0.5; V.wakeScore = 0;
+async function setWakeWord(on, onWake) {
+  if (on) {
+    if (!wakeReady) { await wakeW('wakeInit'); wakeReady = true; }
+    await startMic();
+    wakeCb = onWake; wakeOn = true;
+  } else { wakeOn = false; wakeCb = null; }
+}
+function feedWake(f) {
+  const n = new Float32Array(wakeAcc.length + f.length); n.set(wakeAcc);
+  for (let i = 0; i < f.length; i++) n[wakeAcc.length + i] = Math.round(Math.max(-1, Math.min(1, f[i])) * 32767);
+  wakeAcc = n;
+  while (wakeAcc.length >= 1280) {
+    const chunk = wakeAcc.slice(0, 1280); wakeAcc = wakeAcc.slice(1280);
+    if (wakePending > 6) continue;                     // never fall behind real time
+    wakePending++;
+    wakeW('wakeFeed', { chunk }, null, [chunk.buffer]).then(score => {
+      wakePending--; V.wakeScore = score;
+      const now = performance.now();
+      if (score >= V.wakeThreshold && wakeOn && now > wakeCooldown && !V.speaking && now > mutedUntil && mode !== 'once') {
+        wakeCooldown = now + 2500;
+        wakeCb && wakeCb(score);
+      }
+    }).catch(() => { wakePending--; });
+  }
+}
+
 
 /* ------------------------------------------------------------ hearing */
 async function loadHearing(model = 'whisper-base.en', onProgress) {
@@ -96,6 +128,8 @@ function processFrame(f) {
   let s = 0; for (let i = 0; i < f.length; i++) s += f[i] * f[i];
   const rms = Math.sqrt(s / f.length);
   V.level = Math.min(1, rms * 18); V.onLevel && V.onLevel(V.level);
+  recent.push(f); if (recent.length > 19) recent.shift();
+  if (wakeOn) feedWake(f);
   const muted = V.speaking || performance.now() < mutedUntil;
   if (!armed || muted) {
     if (!recording) noise = noise * 0.98 + Math.min(rms, 0.05) * 0.02;
@@ -130,10 +164,10 @@ function finishUtterance() {
     else if (onUtter && t) onUtter(t);
   }).catch(e => { V.log('hearing error: ' + e.message); if (handler) { setVad('off'); handler(''); } });
 }
-async function listenOnce(timeoutMs = 7000) {
+async function listenOnce(timeoutMs = 7000, seedRecent = false) {
   await startMic();
   if (onceResolve) { onceResolve(''); onceResolve = null; }
-  mode = 'once'; armed = true; recording = false; preRoll = []; loud = 0; setVad('armed');
+  mode = 'once'; armed = true; recording = false; preRoll = seedRecent ? recent.slice(-10) : []; loud = 0; setVad('armed');
   return new Promise(res => {
     onceResolve = res;
     clearTimeout(armTimer);
@@ -200,9 +234,16 @@ async function runQueue() {
   }
   qRunning = false; setSpeaking(false);
 }
+const synthCache = new Map();
 function synth(item) {
-  return mouth('synth', { text: item.text, voice: item.opts.voice || 'bm_george', speed: item.opts.speed || 1 });
+  const key = (item.opts.voice || 'bm_george') + '|' + (item.opts.speed || 1) + '|' + item.text;
+  if (synthCache.has(key)) { const c = synthCache.get(key); return Promise.resolve({ samples: c.samples.slice(), rate: c.rate }); }
+  return mouth('synth', { text: item.text, voice: item.opts.voice || 'bm_george', speed: item.opts.speed || 1 }).then(a => {
+    if (item.text.length <= 24) { synthCache.set(key, { samples: a.samples.slice(), rate: a.rate }); if (synthCache.size > 40) synthCache.delete(synthCache.keys().next().value); }
+    return a;
+  });
 }
+function prepare(texts, opts = {}) { return Promise.all(texts.map(text => synth({ text, opts }).catch(() => null))); }
 function play({ samples, rate }) {
   return new Promise(res => {
     if (!playCtx) playCtx = new AudioContext();
@@ -239,6 +280,6 @@ function stopSpeaking() {
 
 // self-test of the speech runtime (used by diagnostics)
 function selfTest(bytes, device = 'wasm') { return ear('selfTest', { bytes, device }); }
-Object.assign(V, { selfTest, loadHearing, transcribe, startMic, stopMic, listenOnce, cancelListen, setContinuous, loadVoice, listVoices, speak, stopSpeaking, splitSentences, MALE_VOICES });
+Object.assign(V, { selfTest, setWakeWord, prepare, loadHearing, transcribe, startMic, stopMic, listenOnce, cancelListen, setContinuous, loadVoice, listVoices, speak, stopSpeaking, splitSentences, MALE_VOICES });
 window.JarvisVoice = V;
 window.dispatchEvent(new Event('jarvis-voice-ready'));

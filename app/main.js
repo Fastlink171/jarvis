@@ -71,7 +71,7 @@ function trayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show Jarvis', click: showWindow },
     { label: 'Talk to Jarvis   (Ctrl+Shift+J)', click: () => win.webContents.send('hotkey:talk') },
-    { label: 'Listen for “Jarvis”', type: 'checkbox', checked: wakeOn, click: m => win.webContents.send('tray:wake', m.checked) },
+    { label: 'Listen for “Hey Jarvis”', type: 'checkbox', checked: wakeOn, click: m => win.webContents.send('tray:wake', m.checked) },
     { type: 'separator' },
     { label: 'Quit Jarvis', click: () => { quitting = true; app.quit(); } }
   ]));
