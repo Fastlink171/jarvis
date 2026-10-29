@@ -4,7 +4,7 @@
   Everything runs on this PC: the AI brain is Ollama (http://127.0.0.1:11434),
   speech recognition and the voice run inside the window (Whisper + Kokoro).
 */
-const { app, BrowserWindow, ipcMain, shell, protocol, net, session, globalShortcut, Tray, Menu, nativeImage, safeStorage, Notification, desktopCapturer, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, protocol, net, session, globalShortcut, Tray, Menu, nativeImage, safeStorage, Notification, desktopCapturer, screen, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -34,7 +34,7 @@ let wakeOn = false;
 const savePrefs = () => { try { fs.writeFileSync(prefsFile(), JSON.stringify(prefs, null, 2)); } catch {} };
 
 /* ------------------------------------------------------------------ window */
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
+const MIME = { '.gif': 'image/gif', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.apng': 'image/apng', '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
 
 function createWindow() {
   win = new BrowserWindow({
@@ -101,8 +101,9 @@ app.whenReady().then(() => {
     const u = new URL(req.url);
     let p = decodeURIComponent(u.pathname);
     if (p === '/' || !p) p = '/index.html';
-    const file = path.normalize(path.join(ROOT, p));
-    if (!file.startsWith(ROOT)) return new Response('forbidden', { status: 403 });
+    let file = path.normalize(path.join(ROOT, p));
+    if (p.startsWith('/custom/')) file = path.join(customDir(), path.basename(p));     // the user's own pictures
+    else if (!file.startsWith(ROOT)) return new Response('forbidden', { status: 403 });
     try {
       const data = await fs.promises.readFile(file);
       return new Response(data, { status: 200, headers: {
@@ -581,9 +582,9 @@ function createPet() {
   const wa = screen.getPrimaryDisplay().workArea;
   let pos = prefs.petPos;
   const onScreen = pos && screen.getAllDisplays().some(d => pos.x > d.workArea.x - 120 && pos.x < d.workArea.x + d.workArea.width - 120 && pos.y > d.workArea.y - 130 && pos.y < d.workArea.y + d.workArea.height - 130);
-  if (!onScreen) pos = { x: wa.x + wa.width - 250, y: wa.y + wa.height - 262 };
+  if (!onScreen) pos = { x: wa.x + wa.width - 300, y: wa.y + wa.height - 342 };
   petWin = new BrowserWindow({
-    width: 240, height: 260, x: pos.x, y: pos.y, transparent: true, frame: false, resizable: false, movable: true,
+    width: 300, height: 340, x: pos.x, y: pos.y, transparent: true, frame: false, resizable: false, movable: true,
     alwaysOnTop: true, skipTaskbar: true, hasShadow: false, focusable: false, show: false, backgroundColor: '#00000000', title: 'Jarvis pet',
     webPreferences: { preload: path.join(__dirname, 'pet-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
   });
@@ -617,7 +618,39 @@ ipcMain.handle('pet:set', (e, d) => {
   if ('show' in d) { petWanted = !!d.show; updatePetVisibility(); }
   if ('gaming' in d) { petHiddenForGame = !!d.gaming; updatePetVisibility(); }
   const upd = {};
-  for (const k of ['state', 'level', 'say', 'theme']) if (k in d) upd[k] = d[k];
+  for (const k of ['state', 'level', 'say', 'theme', 'custom', 'scale']) if (k in d) upd[k] = d[k];
   if (Object.keys(upd).length) { Object.assign(petLast, upd); delete petLast.say; if (petWin) petWin.webContents.send('pet:update', upd); }
   return true;
+});
+
+/* ------------------------------------------------------------------ custom look: the user's own pictures (stay on this PC) */
+const SLOTS = ['idle', 'speaking', 'listening', 'thinking', 'wallpaper'];
+function customDir() { const d = path.join(app.getPath('userData'), 'custom'); try { fs.mkdirSync(d, { recursive: true }); } catch {} return d; }
+function customUrls() {
+  const out = {}; prefs.custom = prefs.custom || {};
+  for (const k of SLOTS) { const f = prefs.custom[k]; if (f && fs.existsSync(path.join(customDir(), f))) out[k] = 'app://jarvis/custom/' + encodeURIComponent(f); }
+  return out;
+}
+ipcMain.handle('custom:get', () => customUrls());
+ipcMain.handle('custom:pick', async (e, slot) => {
+  if (!SLOTS.includes(slot)) return { ok: false };
+  const r = await dialog.showOpenDialog(win, {
+    title: slot === 'wallpaper' ? 'Choose a wallpaper' : 'Choose a picture for the pet (' + slot + ')',
+    properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'gif', 'webp', 'jpg', 'jpeg', 'apng'] }]
+  });
+  if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+  const src = r.filePaths[0], st = fs.statSync(src);
+  if (st.size > 40 * 1024 * 1024) return { ok: false, error: 'That file is over 40 MB.' };
+  const name = slot + '-' + Date.now() + path.extname(src).toLowerCase();
+  fs.copyFileSync(src, path.join(customDir(), name));
+  prefs.custom = prefs.custom || {};
+  const old = prefs.custom[slot]; if (old) { try { fs.unlinkSync(path.join(customDir(), old)); } catch {} }
+  prefs.custom[slot] = name; savePrefs();
+  return { ok: true, urls: customUrls() };
+});
+ipcMain.handle('custom:clear', (e, slot) => {
+  prefs.custom = prefs.custom || {};
+  const old = prefs.custom[slot]; if (old) { try { fs.unlinkSync(path.join(customDir(), old)); } catch {} }
+  delete prefs.custom[slot]; savePrefs();
+  return { ok: true, urls: customUrls() };
 });

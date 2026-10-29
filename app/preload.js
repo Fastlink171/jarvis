@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   pc: inv('pc:do'),
   capture: inv('screen:capture'),
   pet: { set: inv('pet:set'), theme: t => ipcRenderer.invoke('pet:set', { theme: t }) },
+  custom: { get: inv('custom:get'), pick: inv('custom:pick'), clear: inv('custom:clear') },
   ollama: {
     version: inv('ollama:version'), tags: inv('ollama:tags'), ps: inv('ollama:ps'), show: inv('ollama:show'),
     start: inv('ollama:start'), pull: inv('ollama:pull'), pullCancel: inv('ollama:pullCancel'), remove: inv('ollama:delete'),

@@ -192,8 +192,9 @@ async function loadVoice(onProgress) {
   voiceList = r.voices || []; V.voiceDevice = r.device; V.voiceReady = true;
   return true;
 }
-function listVoices() {
+function listVoices(all) {
   if (!voiceList.length) return MALE_VOICES.map(id => ({ id, name: id }));
+  if (all) return voiceList;
   return voiceList.filter(v => /^[ab]m_/.test(v.id) || (/male/i.test(v.gender || '') && !/female/i.test(v.gender || '')));
 }
 function setSpeaking(on) { if (V.speaking === on) return; V.speaking = on; if (!on) mutedUntil = performance.now() + 400; V.onSpeakingChange && V.onSpeakingChange(on); }

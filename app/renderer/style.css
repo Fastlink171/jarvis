@@ -201,3 +201,8 @@ code{color:var(--acc2);background:rgba(0,0,0,.35);padding:1px 5px}
 .theme-neon.noblur .panel{background:rgba(16,6,34,.76)}
 .theme-neon.noblur .tb{background:rgba(16,6,34,.82)}
 .theme-neon .modal .panel,.theme-neon .setupBox{background:rgba(14,5,30,.95)}
+
+.custom{display:grid;gap:5px;margin-top:6px}
+.crow{display:grid;grid-template-columns:92px 44px 1fr auto auto;gap:6px;align-items:center;font-size:9.5px;color:var(--dim);letter-spacing:.08em}
+.crow .th{width:44px;height:44px;border:1px solid var(--edge);background:rgba(0,0,0,.3) center/contain no-repeat;border-radius:4px}
+.crow .nm{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

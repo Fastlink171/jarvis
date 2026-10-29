@@ -44,6 +44,17 @@ function buildScene(){
   scene.width = W * dpr; scene.height = H * dpr;
   const c = document.createElement('canvas'); c.width = W * dpr; c.height = H * dpr;
   const x = c.getContext('2d'); x.scale(dpr, dpr); const R = rnd(7);
+  if (S.wallImg && S.wallImg.complete && S.wallImg.naturalWidth) {
+    // the user's own wallpaper, scaled to cover the window, dimmed so the panels stay readable
+    const im = S.wallImg, k = Math.max(W / im.naturalWidth, H / im.naturalHeight), iw = im.naturalWidth * k, ih = im.naturalHeight * k;
+    x.drawImage(im, (W - iw) / 2, (H - ih) / 2, iw, ih);
+    x.fillStyle = `rgba(4,2,12,${S.wallDim})`; x.fillRect(0, 0, W, H);
+    const vg = x.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .3, W / 2, H / 2, Math.max(W, H) * .75); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)');
+    x.fillStyle = vg; x.fillRect(0, 0, W, H);
+    bgImg = c;
+    motes = S.theme === 'neon' ? Array.from({ length: Math.round(W * H / 90000) }, () => ({ x: Math.random() * W, y: Math.random() * H, r: 5 + Math.random() * 6, vx: (Math.random() - .5) * .15, vy: -.12 - Math.random() * .25, p: Math.random() * 7, k: Math.floor(Math.random() * 4) })) : [];
+    return;
+  }
   if (S.theme === 'neon') {
     buildNeon(x, W, H, R); bgImg = c;
     motes = Array.from({ length: Math.round(W * H / 60000) }, () => ({ x: Math.random() * W, y: Math.random() * H, r: 5 + Math.random() * 6, vx: (Math.random() - .5) * .15, vy: -.12 - Math.random() * .25, p: Math.random() * 7, k: Math.floor(Math.random() * 4) }));

@@ -6,8 +6,10 @@
 <title>Jarvis pet</title>
 <style>
 html,body{margin:0;height:100%;background:transparent;overflow:hidden;user-select:none;font-family:'Segoe UI',system-ui,sans-serif}
-canvas{position:absolute;left:0;top:0;width:240px;height:260px}
-#bubble{position:absolute;left:10px;right:10px;bottom:176px;display:none;justify-content:center}
+canvas#c{position:absolute;left:30px;top:80px;width:240px;height:260px}
+#sprite{position:absolute;left:50%;bottom:12px;transform-origin:50% 100%;display:none;pointer-events:none;image-rendering:auto}
+#fx{position:absolute;left:0;top:0;width:300px;height:340px;pointer-events:none}
+#bubble{position:absolute;left:12px;right:12px;bottom:176px;display:none;justify-content:center}
 #bubble div{max-width:216px;background:rgba(12,6,30,.92);color:#eafffb;border:1px solid rgba(63,240,216,.55);box-shadow:0 0 14px rgba(255,95,180,.35);
   border-radius:12px;padding:7px 10px;font-size:12px;line-height:1.35;text-align:center;position:relative}
 #bubble div:after{content:"";position:absolute;left:50%;bottom:-7px;margin-left:-6px;border:6px solid transparent;border-top-color:rgba(63,240,216,.55);border-bottom:0}
@@ -16,7 +18,9 @@ canvas{position:absolute;left:0;top:0;width:240px;height:260px}
 </style>
 </head>
 <body>
+<canvas id="fx" width="600" height="680"></canvas>
 <canvas id="c" width="480" height="520"></canvas>
+<img id="sprite" alt="">
 <div id="bubble"><div id="say"></div></div>
 <script src="pet.js"></script>
 </body>

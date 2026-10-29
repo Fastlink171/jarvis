@@ -5,6 +5,9 @@ const P = window.pet;
 const c = document.getElementById('c'), x = c.getContext('2d');
 const dpr = 2; x.scale(dpr, dpr);
 const W = 240, H = 260;
+const OX = 30, OY = 80;                                 // where the drawn bot sits inside the 300x340 window
+const sprite = document.getElementById('sprite'), fx = document.getElementById('fx'), fxx = fx.getContext('2d'); fxx.scale(2, 2);
+let custom = {}, scale = 1, imgs = {}, curSrc = '';
 let st = { state: 'idle', level: 0, theme: 'neon' }, lvl = 0, blinkAt = 0, blink = 0, notes = [], lastActive = performance.now(), bubbleT = null;
 const COL = {
   neon:    { body1: '#f2fffd', body2: '#9ef2e6', rim: '#3ff0d8', visor: '#12062c', eye: '#3ff0d8', acc: '#ff5fb4', accRGB: '255,95,180', eyeRGB: '63,240,216' },
@@ -16,7 +19,27 @@ P.on(d => {
   if (d.state) { if (d.state !== 'idle') lastActive = performance.now(); st.state = d.state; }
   if (typeof d.level === 'number') st.level = d.level;
   if (d.say) say(d.say);
+  if ('scale' in d) scale = d.scale || 1;
+  if ('custom' in d) {
+    custom = d.custom || {};
+    imgs = {};
+    for (const k of ['idle', 'speaking', 'listening', 'thinking']) if (custom[k]) { const im = new Image(); im.src = custom[k]; imgs[k] = im; }
+    const on = !!custom.idle;
+    c.style.display = on ? 'none' : 'block'; sprite.style.display = on ? 'block' : 'none';
+    curSrc = '';
+  }
 });
+// for click-through: is there a visible pixel of the custom picture under the mouse?
+const hitCv = document.createElement('canvas'), hitX = hitCv.getContext('2d', { willReadFrequently: true });
+function overSprite(mx, my) {
+  const r = sprite.getBoundingClientRect();
+  if (mx < r.left || mx > r.right || my < r.top || my > r.bottom || !r.width) return false;
+  try {
+    hitCv.width = Math.max(1, Math.round(r.width)); hitCv.height = Math.max(1, Math.round(r.height));
+    hitX.drawImage(sprite, 0, 0, hitCv.width, hitCv.height);
+    return hitX.getImageData(Math.round(mx - r.left), Math.round(my - r.top), 1, 1).data[3] > 25;
+  } catch { return true; }
+}
 function say(text) {
   const el = document.getElementById('say');
   el.textContent = text.length > 110 ? text.slice(0, 107) + '…' : text;
@@ -26,7 +49,11 @@ function say(text) {
 
 // ---- input: drag to move, click to talk, right-click for a menu. Only the bot itself catches the mouse.
 const cx = 120, cy = 178;
-const overBot = (mx, my) => Math.hypot(mx - cx, (my - cy) * 1.05) < 54 || (Math.abs(mx - cx) < 8 && my > cy - 92 && my < cy - 40);
+const overBot = (mx, my) => {
+  if (custom.idle) return overSprite(mx, my);
+  mx -= OX; my -= OY;
+  return Math.hypot(mx - cx, (my - cy) * 1.05) < 54 || (Math.abs(mx - cx) < 8 && my > cy - 92 && my < cy - 40);
+};
 let hover = false, down = null, moved = false;
 addEventListener('mousemove', e => {
   const h = overBot(e.clientX, e.clientY) || !!down;
@@ -41,8 +68,37 @@ let hop = 0;
 
 // ---- drawing
 function rr(x0, y0, w, h, r) { x.beginPath(); x.moveTo(x0 + r, y0); x.arcTo(x0 + w, y0, x0 + w, y0 + h, r); x.arcTo(x0 + w, y0 + h, x0, y0 + h, r); x.arcTo(x0, y0 + h, x0, y0, r); x.arcTo(x0, y0, x0 + w, y0, r); x.closePath(); }
+function frameCustom(t) {
+  const C = COL[st.theme] || COL.neon, s = st.state, sec = t / 1000;
+  lvl += (st.level - lvl) * .35; hop *= .9;
+  const sleepy = s === 'idle' && t - lastActive > 180000;
+  const want = (imgs[s] && imgs[s].src) || imgs.idle.src;
+  if (want !== curSrc) { sprite.src = want; curSrc = want; }
+  const size = Math.round(200 * scale);
+  sprite.style.maxWidth = Math.min(290, size) + 'px'; sprite.style.maxHeight = Math.min(300, size) + 'px';
+  const bob = Math.sin(sec * (s === 'speaking' ? 4 : 1.6)) * (s === 'speaking' ? 3 : 4) - hop * 16;
+  const sq = s === 'speaking' ? 1 + lvl * .05 : 1 + Math.sin(sec * 1.6) * .012;
+  sprite.style.transform = `translateX(-50%) translateY(${bob}px) scale(${sq}, ${2 - sq})`;
+  sprite.style.filter = s === 'listening' ? `drop-shadow(0 0 ${8 + lvl * 10}px rgba(${C.accRGB},.9))` : s === 'speaking' ? `drop-shadow(0 0 6px rgba(${C.eyeRGB},.7))` : sleepy ? 'grayscale(.35) brightness(.85)' : 'none';
+  sprite.style.opacity = sleepy ? .85 : 1;
+  // effects layer: shadow, rings, thinking dots, notes, z's
+  fxx.clearRect(0, 0, 300, 340);
+  const r = sprite.getBoundingClientRect(), mx = r.left + r.width / 2, top = r.top;
+  document.getElementById('bubble').style.bottom = Math.round(340 - top + 8) + 'px';
+  fxx.fillStyle = 'rgba(0,0,0,.2)'; fxx.beginPath(); fxx.ellipse(mx, 332, Math.max(20, r.width * .3), 6, 0, 0, 7); fxx.fill();
+  if (s === 'listening') for (let i = 0; i < 3; i++) { const k = ((sec * .9 + i / 3) % 1); fxx.strokeStyle = `rgba(${C.accRGB},${(1 - k) * .5})`; fxx.lineWidth = 2; fxx.beginPath(); fxx.ellipse(mx, r.top + r.height * .55, r.width * .45 + k * 30, r.height * .45 + k * 30, 0, 0, 7); fxx.stroke(); }
+  if (s === 'thinking') for (let i = 0; i < 3; i++) { fxx.fillStyle = `rgba(${C.accRGB},${.3 + .7 * ((Math.sin(sec * 5 - i) + 1) / 2)})`; fxx.beginPath(); fxx.arc(r.right - 6 + i * 11, top + 8 - i * 7, 3 + i, 0, 7); fxx.fill(); }
+  if (sleepy) { fxx.fillStyle = `rgba(${C.eyeRGB},.85)`; fxx.font = 'bold 14px sans-serif'; fxx.fillText('z', r.right - 4, top + 14 + Math.sin(sec) * 3); fxx.font = 'bold 11px sans-serif'; fxx.fillText('z', r.right + 8, top + Math.sin(sec + 1) * 3); }
+  if ((s === 'speaking' && Math.random() < .06) || (s === 'idle' && !sleepy && Math.random() < .004)) notes.push({ x: mx + (Math.random() - .5) * r.width * .6, y: top + 10, vx: (Math.random() - .5) * .6, a: 1, ch: Math.random() < .5 ? '♪' : '♫', col: Math.random() < .5 ? C.acc : C.eye });
+  fxx.font = '16px serif'; notes = notes.filter(n => n.a > 0);
+  for (const n of notes) { n.x += n.vx; n.y -= .7; n.a -= .012; fxx.globalAlpha = Math.max(0, n.a); fxx.fillStyle = n.col; fxx.fillText(n.ch, n.x, n.y); }
+  fxx.globalAlpha = 1;
+}
 function frame(t) {
   requestAnimationFrame(frame);
+  if (custom.idle && imgs.idle) { frameCustom(t); return; }
+  fxx.clearRect(0, 0, 300, 340);
+  document.getElementById('bubble').style.bottom = '';
   const C = COL[st.theme] || COL.neon, s = st.state, sec = t / 1000;
   lvl += (st.level - lvl) * .35;
   const sleepy = s === 'idle' && t - lastActive > 180000;

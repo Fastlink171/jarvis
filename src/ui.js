@@ -25,7 +25,7 @@ const S = {
   info:{}, name:store.get('name', ''), ollama:false, models:[], model:store.get('model', ''), caps:[], modelSize:0,
   deep:store.get('deep', false), duck:store.get('duck', true), visible:true, media:[], apps:[],
   theme:(store.get('theme18', false) ? store.get('theme', 'neon') : (store.set('theme18', true), store.set('theme', 'neon'), 'neon')),
-  pet:store.get('pet', true),
+  pet:store.get('pet', true), custom:{}, wallImg:null, petScale:store.get('petScale', 1), wallDim:store.get('wallDim', 0.35),
   screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
   pending:null, history:[], run:0, chatId:null,
   confirm:store.get('confirm', true), autoSafe:store.get('autoSafe', true),
@@ -972,7 +972,15 @@ function fillVoiceSelect(){
   const sel = $('#voiceSel'); sel.innerHTML = '';
   const list = V && V.voiceReady ? V.listVoices() : [];
   const nice = { bm_george:'George — British (Jarvis)', bm_lewis:'Lewis — British', bm_daniel:'Daniel — British', bm_fable:'Fable — British', am_michael:'Michael — American', am_adam:'Adam — American', am_eric:'Eric — American', am_liam:'Liam — American', am_onyx:'Onyx — American, deep', am_echo:'Echo — American', am_puck:'Puck — American', am_fenrir:'Fenrir — American' };
-  (list.length ? list : (V ? V.MALE_VOICES.map(id => ({ id })) : [])).forEach(v => { const o = document.createElement('option'); o.value = v.id; o.textContent = nice[v.id] || v.id; sel.appendChild(o); });
+  const males = list.length ? list : (V ? V.MALE_VOICES.map(id => ({ id })) : []);
+  const g1 = document.createElement('optgroup'); g1.label = 'Male voices'; sel.appendChild(g1);
+  males.forEach(v => { const o = document.createElement('option'); o.value = v.id; o.textContent = nice[v.id] || v.id; g1.appendChild(o); });
+  const others = V && V.voiceReady ? V.listVoices(true).filter(v => !males.some(m => m.id === v.id)) : [];
+  if (others.length) {
+    const lang = { a: 'American', b: 'British', e: 'Spanish', f: 'French', h: 'Hindi', i: 'Italian', j: 'Japanese', p: 'Portuguese', z: 'Chinese' };
+    const g2 = document.createElement('optgroup'); g2.label = 'Other voices'; sel.appendChild(g2);
+    others.forEach(v => { const o = document.createElement('option'); o.value = v.id; const nm = v.id.split('_')[1] || v.id; o.textContent = nm[0].toUpperCase() + nm.slice(1) + ' — ' + (lang[v.id[0]] || v.id.slice(0, 2)) + (/^.f_/.test(v.id) ? ', female' : ''); g2.appendChild(o); });
+  }
   const w = document.createElement('option'); w.value = 'windows'; w.textContent = 'Windows built-in voice (David)'; sel.appendChild(w);
   sel.value = V && V.voiceReady ? S.voice : 'windows';
 }
@@ -1023,6 +1031,17 @@ function wire(){
   J.on('pet:off', () => { S.pet = false; store.set('pet', false); $('#petChk').checked = false; J.pet.set({ show: false }); });
   $('#petChk').checked = S.pet; $('#petChk').onchange = e => { S.pet = e.target.checked; store.set('pet', S.pet); J.pet.set({ show: S.pet }); };
   J.pet.set({ theme: S.theme, show: S.pet, state: 'idle' });
+  J.custom.get().then(applyCustom);
+  $('#customRows').onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const r = b.dataset.pick ? await J.custom.pick(b.dataset.pick) : await J.custom.clear(b.dataset.clear);
+    if (r.ok) { applyCustom(r.urls); event('custom look updated'); if (b.dataset.pick && b.dataset.pick !== 'wallpaper' && !S.pet) { S.pet = true; store.set('pet', true); $('#petChk').checked = true; J.pet.set({ show: true }); } }
+    else if (r.error) addMsg('sys', r.error);
+  };
+  $('#petScale').value = S.petScale; const showPS = () => $('#petScaleV').textContent = Math.round(S.petScale * 100) + '%'; showPS();
+  $('#petScale').oninput = e => { S.petScale = +e.target.value; store.set('petScale', S.petScale); showPS(); J.pet.set({ scale: S.petScale }); };
+  $('#wallDim').value = S.wallDim; const showWD = () => $('#wallDimV').textContent = Math.round(S.wallDim * 100) + '%'; showWD();
+  let wdT = 0; $('#wallDim').oninput = e => { S.wallDim = +e.target.value; store.set('wallDim', S.wallDim); showWD(); clearTimeout(wdT); wdT = setTimeout(buildScene, 120); };
   setInterval(() => { if (petState === 'speaking' || petState === 'listening') J.pet.set({ level: petState === 'speaking' ? (V && V.outLevel || 0) : S.micLv }); }, 90);
   J.on('win:visible', v => { S.visible = v; });
   J.isVisible().then(v => { S.visible = v; });
@@ -1141,6 +1160,16 @@ function renderUpdate(st){
   }
 }
 J.on('update:status', renderUpdate);
+
+/* ============================================================ custom look (the user's own pictures) */
+const SLOT_LABELS = { idle:'PET', speaking:'PET · TALKING', listening:'PET · LISTENING', thinking:'PET · THINKING', wallpaper:'WALLPAPER' };
+function applyCustom(urls){
+  S.custom = urls || {};
+  $('#customRows').innerHTML = Object.entries(SLOT_LABELS).map(([k, lab]) => `<div class="crow"><span>${lab}</span><div class="th" style="${S.custom[k] ? `background-image:url('${S.custom[k]}')` : ''}"></div><span class="nm">${S.custom[k] ? 'set' : (k === 'idle' ? 'default music-bot' : k === 'wallpaper' ? 'theme background' : 'uses “Pet”')}</span><button class="chipbtn" data-pick="${k}">CHOOSE</button><button class="chipbtn" data-clear="${k}" ${S.custom[k] ? '' : 'disabled'}>CLEAR</button></div>`).join('');
+  J.pet.set({ custom: { idle: S.custom.idle, speaking: S.custom.speaking, listening: S.custom.listening, thinking: S.custom.thinking }, scale: S.petScale });
+  if (S.custom.wallpaper) { const im = new Image(); im.onload = () => { S.wallImg = im; buildScene(); }; im.src = S.custom.wallpaper; }
+  else if (S.wallImg) { S.wallImg = null; buildScene(); }
+}
 
 /* ============================================================ start */
 let greeted = false;
