@@ -218,6 +218,8 @@
 
     <div class="field"><label>VOICE</label><div class="mini" style="margin-top:0"><select id="voiceSel" style="flex:1"></select><button class="chipbtn" id="voicePrev">▶ PREVIEW</button></div>
       <p class="note" style="margin-top:4px">Your own voices: put a voice file in the voices folder and restart Jarvis. <button class="chipbtn" id="voiceFolder">OPEN VOICES FOLDER</button></p></div>
+    <div class="field" id="customRow" hidden><label>CUSTOM VOICE SERVER</label><div class="mini" style="margin-top:0"><input class="fld" id="customUrl" style="flex:1" spellcheck="false"><button class="chipbtn" id="customCheck">CHECK</button></div>
+      <p class="note" style="margin-top:4px">Start your voice server (Start-TTS.cmd) and keep its window open. Jarvis only talks to it on this PC. If it isn't running, he uses the voice above it instead. <span id="customTxt"></span></p></div>
     <div class="field" id="mixRow"><label>MIX WITH <span id="mixV"></span></label><select id="mixSel"></select>
       <input type="range" id="mixAmt" min="0" max="0.9" step="0.05" style="margin-top:6px">
       <p class="note" style="margin-top:4px">Blend two voices into a new one that's only yours. 0% = just the voice above.</p></div>

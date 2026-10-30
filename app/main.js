@@ -717,6 +717,15 @@ ipcMain.handle('voices:list', () => {
 });
 ipcMain.handle('voices:openFolder', () => shell.openPath(voicesDir()));
 
+/* ------------------------------------------------------------------ custom trained voice: a local TTS server on this PC (see tts.js) */
+const tts = require('./tts');
+ipcMain.handle('tts:speak', async (e, id, text, opts) => {
+  try { const wav = await tts.speak(id, text, opts || {}); return { ok: true, wav: new Uint8Array(wav.buffer, wav.byteOffset, wav.byteLength) }; }
+  catch (err) { return { ok: false, error: err.message, code: err.code || 'error' }; }
+});
+ipcMain.handle('tts:abort', (e, id) => { if (id == null) tts.abortAll(); else tts.abort(id); });
+ipcMain.handle('tts:ping', (e, url) => tts.ping(url).catch(err => ({ ok: false, error: err.message })));
+
 /* ------------------------------------------------------------------ your data: kept safe across updates
    Everything Jarvis knows about you lives in %APPDATA%\Jarvis, which installs and updates never touch.
    On top of that: the window's storage (memories, settings, chat) is mirrored to jarvis-data.json, and a

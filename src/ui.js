@@ -48,7 +48,7 @@ const S = {
   screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
   pending:null, history:[], run:0, chatId:null,
   confirm:store.get('confirm', true), autoSafe:store.get('autoSafe', true),
-  voice:store.get('voice', 'bm_george'), rate:store.get('rate', 1), kpitch:store.get('kpitch', 1), mixVoice:store.get('mixVoice', ''), mixAmt:store.get('mixAmt', 0), ear:store.get('ear', 'whisper-base.en'), sens:store.get('sens', 0.5),
+  voice:store.get('voice', 'bm_george'), rate:store.get('rate', 1), kpitch:store.get('kpitch', 1), mixVoice:store.get('mixVoice', ''), mixAmt:store.get('mixAmt', 0), ttsEngine:store.get('ttsEngine', ''), customUrl:store.get('customUrl', 'http://127.0.0.1:5003/v1/audio/speech'), ear:store.get('ear', 'whisper-base.en'), sens:store.get('sens', 0.5),
   memories:store.get('memories', []), tasks:store.get('tasks', []), timers:store.get('timers', []),
   counts:store.get('counts', { total:0, cmds:0, days:{} }), session:0,
   city:store.get('city', null), celsius:store.get('celsius', false), weather:null,
@@ -112,7 +112,7 @@ function renderCounters(){
 }
 
 /* ============================================================ voice wrappers */
-function voiceOpts(){ return { engine: V && V.voiceReady ? 'kokoro' : 'windows', voice: S.voice, speed: S.rate, rate: S.rate, pitch: 0.9, kpitch: S.kpitch, basePitch: (myVoices.find(v => v.id === S.voice) || {}).pitch || 1, blend: S.mixVoice && S.mixAmt > 0 ? { voice: S.mixVoice, amount: S.mixAmt } : null }; }
+function voiceOpts(){ return { engine: S.ttsEngine === 'custom' ? 'custom' : V && V.voiceReady ? 'kokoro' : 'windows', customUrl: S.customUrl, voice: S.voice, speed: S.rate, rate: S.rate, pitch: 0.9, kpitch: S.kpitch, basePitch: (myVoices.find(v => v.id === S.voice) || {}).pitch || 1, blend: S.mixVoice && S.mixAmt > 0 ? { voice: S.mixVoice, amount: S.mixAmt } : null }; }
 function speak(text){
   if (!text || !V) return Promise.resolve();
   if (S.wake) S.awaitingUntil = 0;
@@ -1163,20 +1163,33 @@ function fillVoiceSelect(){
     for (const [label, ids] of voiceGroups()) { const g = document.createElement('optgroup'); g.label = label; ids.forEach(id => { const o = document.createElement('option'); o.value = id; o.textContent = voiceLabel(id); g.appendChild(o); }); sel.appendChild(g); }
   };
   const sel = $('#voiceSel'); fill(sel, false);
+  const c = document.createElement('option'); c.value = 'custom'; c.textContent = 'Custom trained voice (local server)'; sel.appendChild(c);
   const w = document.createElement('option'); w.value = 'windows'; w.textContent = 'Windows built-in voice (David)'; sel.appendChild(w);
-  sel.value = V && V.voiceReady ? S.voice : 'windows';
+  sel.value = S.ttsEngine === 'custom' ? 'custom' : V && V.voiceReady ? S.voice : 'windows';
   const mx = $('#mixSel'); fill(mx, true); mx.value = S.mixVoice || '';
   syncVoiceUi();
 }
 function syncVoiceUi(){
-  const kok = !!(V && V.voiceReady) && $('#voiceSel').value !== 'windows';
+  const custom = S.ttsEngine === 'custom';
+  const kok = !!(V && V.voiceReady) && !custom && $('#voiceSel').value !== 'windows';
+  $('#customRow').hidden = !custom;
   $('#mixRow').style.opacity = $('#pitchRow').style.opacity = kok ? 1 : .45;
   $('#mixAmt').disabled = !S.mixVoice; $('#mixAmt').value = S.mixAmt;
   $('#mixV').textContent = S.mixVoice && S.mixAmt > 0 ? Math.round(S.mixAmt * 100) + '% ' + ((myVoices.find(v => v.id === S.mixVoice) || {}).label || S.mixVoice.split('_')[1] || '').toUpperCase() : 'OFF';
   $('#kpitch').value = S.kpitch; $('#pitchV').textContent = (S.kpitch >= 1 ? '+' : '') + Math.round((S.kpitch - 1) * 100) + '%';
   const mine = myVoices.find(v => v.id === S.voice);
   const nm = (mine ? mine.label : (S.voice.split('_')[1] || S.voice)).toUpperCase();
-  if (V && V.voiceReady) tb('#tbVoice', S.mixVoice && S.mixAmt > 0 ? 'MIX' : nm, 'on');
+  if (custom) tb('#tbVoice', V && V.customError ? 'CUSTOM OFFLINE' : 'CUSTOM', V && V.customError ? 'warn' : 'on');
+  else if (V && V.voiceReady) tb('#tbVoice', S.mixVoice && S.mixAmt > 0 ? 'MIX' : nm, 'on');
+}
+// custom trained voice: is the local server answering?
+async function checkCustomVoice(say){
+  $('#customTxt').textContent = 'Checking…';
+  const r = await J.tts.ping(S.customUrl).catch(e => ({ ok: false, error: e.message }));
+  if (V) V.customError = r.ok ? '' : r.error;
+  $('#customTxt').textContent = r.ok ? 'Server is running.' : 'Not reachable: ' + r.error + '. Jarvis will use ' + (V && V.voiceReady ? 'Kokoro' : 'the Windows voice') + ' until it is.';
+  syncVoiceUi(); if (!r.ok) event('custom voice: ' + r.error);
+  return r.ok;
 }
 
 /* ============================================================ scene + orb (shared with the HTML version) */
@@ -1354,14 +1367,16 @@ function wire(){
   $('#moreModels').onclick = () => { $('#modal').classList.remove('show'); runSetup(true).then(watchSetup); };
   $('#rerunSetup').onclick = $('#moreModels').onclick;
   $('#deep').checked = S.deep; $('#deep').onchange = e => { S.deep = e.target.checked; store.set('deep', S.deep); };
-  $('#voiceSel').onchange = e => { if (e.target.value !== 'windows') { S.voice = e.target.value; store.set('voice', S.voice); syncVoiceUi(); } else { if (V) V.voiceReady = false; tb('#tbVoice', 'WINDOWS', 'warn'); syncVoiceUi(); } };
+  $('#voiceSel').onchange = e => { stopVoice(); S.ttsEngine = e.target.value === 'custom' ? 'custom' : ''; store.set('ttsEngine', S.ttsEngine); if (S.ttsEngine) { syncVoiceUi(); checkCustomVoice(); return; } if (e.target.value !== 'windows') { S.voice = e.target.value; store.set('voice', S.voice); syncVoiceUi(); } else { if (V) V.voiceReady = false; tb('#tbVoice', 'WINDOWS', 'warn'); syncVoiceUi(); } };
   $('#mixSel').onchange = e => { S.mixVoice = e.target.value; store.set('mixVoice', S.mixVoice); if (S.mixVoice && !S.mixAmt) { S.mixAmt = .4; store.set('mixAmt', S.mixAmt); } syncVoiceUi(); };
   $('#mixAmt').oninput = e => { S.mixAmt = +e.target.value; store.set('mixAmt', S.mixAmt); syncVoiceUi(); };
   $('#kpitch').oninput = e => { S.kpitch = +e.target.value; store.set('kpitch', S.kpitch); syncVoiceUi(); };
   $('#voicePrev').onclick = () => { stopVoice(); speak(pick(['Hello. This is how I sound now.', 'Ready when you are. What are we doing today?', 'All systems online. How do I sound?'])); };
   $('#voiceFolder').onclick = () => J.voices.openFolder();
+  $('#customUrl').value = S.customUrl; $('#customUrl').onchange = e => { S.customUrl = e.target.value.trim() || 'http://127.0.0.1:5003/v1/audio/speech'; e.target.value = S.customUrl; store.set('customUrl', S.customUrl); checkCustomVoice(); };
+  $('#customCheck').onclick = () => checkCustomVoice();
   J.voices.list().then(v => { myVoices = v || []; fillVoiceSelect(); }).catch(() => {});
-  $('#voiceReset').onclick = () => { Object.assign(S, { voice:'bm_george', mixVoice:'', mixAmt:0, kpitch:1, rate:1 }); ['voice','mixVoice','mixAmt','kpitch','rate'].forEach(k => store.set(k, S[k])); $('#rate').value = 1; $('#rateV').textContent = '1.00'; fillVoiceSelect(); };
+  $('#voiceReset').onclick = () => { Object.assign(S, { voice:'bm_george', mixVoice:'', mixAmt:0, kpitch:1, rate:1, ttsEngine:'' }); ['voice','mixVoice','mixAmt','kpitch','rate','ttsEngine'].forEach(k => store.set(k, S[k])); $('#rate').value = 1; $('#rateV').textContent = '1.00'; fillVoiceSelect(); };
   $('#rate').value = S.rate; const showR = () => $('#rateV').textContent = (+S.rate).toFixed(2); showR();
   $('#rate').oninput = e => { S.rate = +e.target.value; store.set('rate', S.rate); showR(); };
   $('#testVoice').onclick = () => { stopVoice(); speak(`${greeting()}, sir. All systems are online and at your disposal.`); };
@@ -1410,8 +1425,10 @@ function attachVoice(){
   V.log = m => event(m);
   V.onLevel = lv => { S.micLv = lv; };
   V.onSpeakingChange = () => setState();
+  V.onCustomError = V.onCustomOk = () => syncVoiceUi();
   V.onVadState = st => { if (st === 'recording') $('#state').textContent = 'listening'; else setState(); };
   fillVoiceSelect();
+  if (S.ttsEngine === 'custom') checkCustomVoice();
   if (store.get('voiceDone', false)) loadVoiceModels(false);   // from cache: quick, offline
   if (!store.get('wake15', false)) { store.set('wake15', true); S.wake = true; store.set('wake', true); }   // 1.6: "Hey Jarvis" on by default
   V.wakeThreshold = 0.75 - 0.45 * S.sens;

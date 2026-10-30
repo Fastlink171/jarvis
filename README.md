@@ -4,7 +4,7 @@ A personal AI assistant for Windows that runs entirely on your own PC.
 
 - **Brain:** a local model through [Ollama](https://ollama.com), on your graphics card. No accounts or tokens.
 - **Hearing:** Whisper speech recognition, running locally.
-- **Voice:** Kokoro neural voices (British male "George" by default), running locally.
+- **Voice:** Kokoro neural voices (British male "George" by default), running locally. Or your own custom trained voice from a TTS server on your PC.
 - **Abilities:** web search and page reading, PowerShell, opening apps and sites, reading and writing files, timers, reminders, tasks, weather and long-term memory.
 
 ## Install

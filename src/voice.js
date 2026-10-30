@@ -201,7 +201,7 @@ function setSpeaking(on) { if (V.speaking === on) return; V.speaking = on; if (!
 
 function splitSentences(text) {
   const clean = String(text).replace(/```[\s\S]*?```/g, ' ').replace(/https?:\/\/\S+/g, 'the link').replace(/[*_#`>|]/g, '').replace(/\s+/g, ' ').trim();
-  const parts = clean.match(/[^.!?;:]+(?:[.!?;:]+|$)/g) || [clean];
+  const parts = clean.match(/[^.!?;:。！？]+(?:[.!?;:。！？]+|$)/g) || [clean];
   const out = []; let cur = '';
   for (const p of parts) { if ((cur + p).length < 40) cur += p; else { if (cur) out.push(cur.trim()); cur = p; } }
   if (cur.trim()) out.push(cur.trim());
@@ -213,10 +213,10 @@ function splitSentences(text) {
     for (const piece of sn.split(/(?<=,)\s+|\s+(?=(?:and|but|so|because|which|while|although)\s)/)) { if ((c + ' ' + piece).length > 90 && c.length > 30) { fin.push(c.trim()); c = piece; } else c = c ? c + ' ' + piece : piece; }
     if (c.trim()) fin.push(c.trim());
   }
-  return fin.filter(s => /\w/.test(s));
+  return fin.filter(s => /[\p{L}\p{N}]/u.test(s));
 }
 
-// opts: { engine: 'kokoro'|'windows', voice, speed, winVoice, rate, pitch }
+// opts: { engine: 'kokoro'|'custom'|'windows', voice, speed, winVoice, rate, pitch, customUrl }
 function speak(text, opts = {}) {
   const parts = splitSentences(text);
   if (!parts.length) return Promise.resolve();
@@ -224,7 +224,8 @@ function speak(text, opts = {}) {
     parts.forEach((p, i) => {
       const item = { text: p, opts, done: i === parts.length - 1 ? resolve : null, gen: genId };
       // start rendering right away, while earlier sentences are still playing — no gaps between sentences
-      if (opts.engine !== 'windows' && V.voiceReady) item.audioP = synth(item).catch(e => { V.log('voice error: ' + e.message); return null; });
+      if (opts.engine === 'custom') item.audioP = synthCustom(item).catch(e => { customFailed(e); return V.voiceReady ? synth(item).catch(() => null) : null; });
+      else if (opts.engine !== 'windows' && V.voiceReady) item.audioP = synth(item).catch(e => { V.log('voice error: ' + e.message); return null; });
       queue.push(item);
     });
     runQueue();
@@ -262,6 +263,28 @@ function synth(item) {
     return a;
   });
 }
+// Custom trained voice: a local TTS server reached through the main process (app/tts.js), one sentence at a time and
+// in order — it renders a whole sentence before answering. If it fails, the sentence falls back to Kokoro or Windows.
+let customChain = Promise.resolve(), ttsSeq = 0, lastCustomErr = '', lastCustomErrAt = 0;
+function synthCustom(item) {
+  const p = customChain.then(async () => {
+    if (item.gen !== genId) return null;                      // stopped while waiting its turn
+    const r = await window.jarvis.tts.speak('t' + (++ttsSeq), item.text, { url: item.opts.customUrl });
+    if (!r.ok) { if (r.code === 'cancelled') return null; const e = new Error(r.error); e.code = r.code; throw e; }
+    if (item.gen !== genId) return null;
+    if (!playCtx) playCtx = new AudioContext();
+    const w = r.wav, a = await playCtx.decodeAudioData(w.buffer.slice(w.byteOffset, w.byteOffset + w.byteLength));
+    if (V.customError) { V.customError = ''; V.onCustomOk && V.onCustomOk(); }
+    return { samples: a.getChannelData(0), rate: a.sampleRate, pitch: 1 };
+  });
+  customChain = p.catch(() => {});
+  return p;
+}
+function customFailed(e) {
+  const now = Date.now(); V.customError = e.message;
+  if (e.message !== lastCustomErr || now - lastCustomErrAt > 30000) { V.log(e.message + ' — using the fallback voice'); V.onCustomError && V.onCustomError(e); }
+  lastCustomErr = e.message; lastCustomErrAt = now;
+}
 function prepare(texts, opts = {}) { return Promise.all(texts.map(text => synth({ text, opts }).catch(() => null))); }
 function play({ samples, rate, pitch }) {
   return new Promise(res => {
@@ -294,6 +317,7 @@ function stopSpeaking() {
   genId++; queue.forEach(q => q.done && q.done()); queue = [];
   try { playing && playing.stop(); } catch {}
   try { speechSynthesis.cancel(); } catch {}
+  try { window.jarvis && window.jarvis.tts && window.jarvis.tts.abort(null); } catch {}
   setSpeaking(false);
 }
 

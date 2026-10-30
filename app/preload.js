@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   capture: inv('screen:capture'),
   pet: { set: inv('pet:set'), theme: t => ipcRenderer.invoke('pet:set', { theme: t }) },
   voices: { list: inv('voices:list'), openFolder: inv('voices:openFolder') },
+  tts: { speak: inv('tts:speak'), abort: inv('tts:abort'), ping: inv('tts:ping') },
   custom: { get: inv('custom:get'), pick: inv('custom:pick'), clear: inv('custom:clear') },
   todo: { load: inv('todo:load'), save: inv('todo:save') },
   scene: { get: inv('scene:get'), pick: inv('scene:pick'), clear: inv('scene:clear') },
