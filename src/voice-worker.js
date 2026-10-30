@@ -42,6 +42,11 @@ const styleCache = new Map();
 async function styleOf(id) {
   if (styleCache.has(id)) return styleCache.get(id);
   let buf = null;
+  if (id.startsWith('my:')) {                                  // the user's own voice, kept in %APPDATA%\Jarvis\voices
+    const r = await fetch(new URL('/myvoices/' + encodeURIComponent(id.slice(3)) + '.bin', self.location.href).href);
+    if (!r.ok) throw new Error('could not find your voice ' + id.slice(3));
+    const f = new Float32Array(await r.arrayBuffer()); styleCache.set(id, f); return f;
+  }
   try { const r = await fetch(new URL('./voices/' + id + '.bin', self.location.href).href); if (r.ok) buf = await r.arrayBuffer(); } catch {}   // shipped with Jarvis
   if (!buf) try { const c = await caches.open('kokoro-voices'); const hit = await c.match(VOICE_URL(id)); if (hit) buf = await hit.arrayBuffer(); } catch {}
   if (!buf) {
@@ -70,8 +75,10 @@ function synthOne(m) {
   const run = async () => {
     patchMixing();
     const voice = m.voice || 'bm_george', b = m.blend && m.blend.voice, t = m.blend ? Math.max(0, Math.min(1, +m.blend.amount || 0)) : 0;
-    mix = b && b !== voice && t > 0 ? { a: voice, b, t } : null;
-    try { return await tts.generate(m.text, { voice, speed: m.speed || 1 }); } finally { mix = null; }
+    mix = b && b !== voice && t > 0 ? { a: voice, b, t } : voice.startsWith('my:') ? { a: voice, b: voice, t: 0 } : null;
+    // Kokoro only accepts its own voice names, so a custom voice runs under af_heart's name (American English) with its own style swapped in
+    const base = voice.startsWith('my:') ? 'af_heart' : voice;
+    try { return await tts.generate(m.text, { voice: base, speed: m.speed || 1 }); } finally { mix = null; }
   };
   const p = chain.then(run, run); chain = p.catch(() => {}); return p;
 }
