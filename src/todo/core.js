@@ -2,7 +2,7 @@
 (function (root) {
 'use strict';
 const TAGS = { small: { label: 'Small', w: 1 }, medium: { label: 'Medium', w: 2 }, important: { label: 'Important', w: 3 } };
-const DAY = 86400000, START_H = 6, END_H = 24;
+const DAY = 86400000, START_H = 0, END_H = 24;
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

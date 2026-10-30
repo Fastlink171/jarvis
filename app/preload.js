@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   pet: { set: inv('pet:set'), theme: t => ipcRenderer.invoke('pet:set', { theme: t }) },
   custom: { get: inv('custom:get'), pick: inv('custom:pick'), clear: inv('custom:clear') },
   todo: { load: inv('todo:load'), save: inv('todo:save') },
+  data: { mirror: inv('data:mirror'), mirrorLoadSync: () => ipcRenderer.sendSync('data:mirrorLoadSync'), backupNow: inv('data:backupNow'), openFolder: inv('data:openFolder') },
   ollama: {
     version: inv('ollama:version'), tags: inv('ollama:tags'), ps: inv('ollama:ps'), show: inv('ollama:show'),
     start: inv('ollama:start'), pull: inv('ollama:pull'), pullCancel: inv('ollama:pullCancel'), remove: inv('ollama:delete'),

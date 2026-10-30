@@ -4,10 +4,29 @@ const J = window.jarvis;
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+/* Memories, settings and chat live in localStorage AND in %APPDATA%\\Jarvis\\jarvis-data.json.
+   If the window's storage is ever missing something (e.g. after an update), it is restored from the file. */
+const mirror = {
+  t: 0,
+  snapshot(){ const o = {}; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('jarvis.')) o[k] = localStorage.getItem(k); } } catch {} return o; },
+  restore(){
+    try {
+      const saved = J.data && J.data.mirrorLoadSync(); if (!saved) return 0;
+      let n = 0; for (const [k, v] of Object.entries(saved)) if (k.startsWith('jarvis.') && localStorage.getItem(k) === null) { localStorage.setItem(k, v); n++; }
+      return n;
+    } catch { return 0; }
+  },
+  save(){ clearTimeout(this.t); this.t = setTimeout(() => { const o = this.snapshot(); if (Object.keys(o).length && J.data) J.data.mirror(o); }, 800); }
+};
+const restoredKeys = mirror.restore();
+if (restoredKeys) console.info('[jarvis] restored', restoredKeys, 'saved items from jarvis-data.json');
 const store = {
   get(k, d){ try { const v = localStorage.getItem('jarvis.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
-  set(k, v){ try { localStorage.setItem('jarvis.' + k, JSON.stringify(v)); } catch {} }
+  set(k, v){ try { localStorage.setItem('jarvis.' + k, JSON.stringify(v)); } catch {} mirror.save(); }
 };
+mirror.save();                                   // first run of this version: make sure the file exists
+{ let last = ''; setInterval(() => { const o = mirror.snapshot(), j = JSON.stringify(o); if (j !== last && Object.keys(o).length && J.data) { last = j; J.data.mirror(o); } }, 15000); }   // catches every change, whatever wrote it
+addEventListener('beforeunload', () => { const o = mirror.snapshot(); if (Object.keys(o).length && J.data) J.data.mirror(o); });
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const today = () => new Date().toISOString().slice(0, 10);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -1368,6 +1387,12 @@ async function boot(){
   $('#updCheck').onclick = () => J.update.check().then(renderUpdate);
   const showKey = has => { $('#keyState').textContent = has ? 'SAVED ✓' : 'NOT SET'; $('#keyState').style.color = has ? 'var(--ok)' : 'var(--warn)'; };
   J.update.state().then(st => showKey(st.hasKey));
+  $('#dataBackup').onclick = async () => {
+    mirror.save(); TODO && TODO.tasks && await J.todo.save(TODO.tasks); await sleep(900);
+    const r = await J.data.backupNow();
+    $('#dataTxt').textContent = r && r.ok ? 'Backed up just now. Jarvis keeps the 10 most recent backups.' : 'Could not write the backup. Check that the drive has free space.';
+  };
+  $('#dataOpen').onclick = () => J.data.openFolder();
   $('#updKeySave').onclick = async () => {
     const k = $('#updKey').value.trim();
     $('#updKeyTxt').textContent = k ? 'Checking the key with GitHub…' : 'Removing key…';

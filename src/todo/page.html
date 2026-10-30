@@ -97,7 +97,8 @@ button.tag.important[aria-pressed="true"]{background:var(--imp-bg)}
 .seg.sm button{padding:5px 12px;font-size:12px}
 
 /* week view */
-.weekScroll{overflow-x:auto}
+.weekScroll{overflow:auto;max-height:max(440px,calc(100vh - 210px));overscroll-behavior:contain;scrollbar-width:thin}
+.wh{top:0}.allday{position:sticky;top:var(--whH,64px);z-index:2;background:var(--panel)}
 .week{min-width:760px;display:grid;grid-template-columns:52px repeat(7,minmax(0,1fr))}
 .wh{position:sticky;top:0;z-index:3;background:var(--panel);padding:8px 6px 6px;border-bottom:1px solid var(--line);border-left:1px solid var(--line);text-align:left}
 .wh:first-child{border-left:0}
@@ -456,6 +457,7 @@ function renderWeek() {
   const sc = el('div', 'weekScroll'), g = el('div', 'week');
   g.append(el('div', 'wh'));
   const days = [...Array(7)].map((_, i) => addDays(ws, i));
+  const onWeek = () => days.flatMap(d => onDay(ymd(d)));
   days.forEach((d, i) => { const s = ymd(d), h = el('div', 'wh' + (s === t0 ? ' today' : '')); h.style.setProperty('--i', i); h.append(el('div', 'dn', DOW[d.getDay()]), el('div', 'dd', String(d.getDate())), loadBar(s, true)); g.append(h); });
   // all-day / untimed row
   g.append(el('div', 'allday lbl', 'no time'));
@@ -467,7 +469,7 @@ function renderWeek() {
   });
   // hours
   const hours = el('div', 'hours');
-  for (let h = START_H; h < END_H; h++) hours.append(el('div', 'hl', h === START_H ? '' : fmtTime(pad(h) + ':00')));
+  for (let h = START_H; h < END_H; h++) hours.append(el('div', 'hl', h === 0 ? '12am' : fmtTime(pad(h) + ':00')));
   g.append(hours);
   days.forEach(d => {
     const s = ymd(d), col = el('div', 'col' + (s === t0 ? ' today' : '') + (d.getDay() % 6 === 0 ? ' weekend' : ''));
@@ -480,7 +482,17 @@ function renderWeek() {
     g.append(col);
   });
   sc.append(g);
-  requestAnimationFrame(() => { if (!sc.dataset.scrolled) { const n = new Date().getHours(); sc.scrollTop = 0; sc.dataset.scrolled = 1; } });
+  // full 24-hour day; open scrolled to just before now (or 7am on other weeks), and keep your place on re-draws
+  sc.addEventListener('scroll', () => { ui.weekTop = sc.scrollTop; }, { passive: true });
+  requestAnimationFrame(() => {
+    const hh = g.querySelector('.wh'); if (hh) g.style.setProperty('--whH', hh.offsetHeight + 'px');
+    if (!sc.clientHeight) return;                     // laid out while hidden; placed when opened
+    if (ui.weekTop != null) { sc.scrollTop = ui.weekTop; return; }
+    const hasToday = days.some(d => ymd(d) === t0), n = new Date();
+    const first = Math.min(...onWeek().filter(t => t.time).map(t => minutes(t.time)), Infinity);
+    const target = hasToday ? n.getHours() * 60 + n.getMinutes() - 90 : Math.min(7 * 60, first - 30);
+    sc.scrollTop = Math.max(0, target / 60 * 46); ui.weekTop = sc.scrollTop;
+  });
   return sc;
 }
 function layoutBlocks(items) {
@@ -759,7 +771,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && HOST && !$
 let introT = 0;
 window.addEventListener('message', e => {
   if (e.source !== window.parent || e.data !== 'todo:open') return;
-  ui.cursor = today(); ui.sel = ymd(today());
+  ui.cursor = today(); ui.sel = ymd(today()); ui.weekTop = null;   // each open lands on the current time
   document.body.classList.remove('intro'); render(); void document.body.offsetWidth; document.body.classList.add('intro');
   clearTimeout(introT); introT = setTimeout(() => document.body.classList.remove('intro'), 1700);
 });

@@ -31,7 +31,8 @@ try { Object.assign(prefs, JSON.parse(fs.readFileSync(prefsFile(), 'utf8'))); } 
 if (!prefs.bg14) { prefs.tray = true; prefs.bg14 = true; }          // 1.4.0: keep running in the background by default
 const START_HIDDEN = process.argv.includes('--hidden');
 let wakeOn = false;
-const savePrefs = () => { try { fs.writeFileSync(prefsFile(), JSON.stringify(prefs, null, 2)); } catch {} };
+const writeSafe = (f, text) => { const tmp = f + '.tmp'; fs.writeFileSync(tmp, text); fs.renameSync(tmp, f); };   // never a half-written file
+const savePrefs = () => { try { writeSafe(prefsFile(), JSON.stringify(prefs, null, 2)); } catch {} };
 
 /* ------------------------------------------------------------------ window */
 const MIME = { '.gif': 'image/gif', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.apng': 'image/apng', '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
@@ -139,6 +140,7 @@ function setupUpdater() {
   autoUpdater.on('update-not-available', () => setUpdate({ state: 'latest', version: app.getVersion() }));
   autoUpdater.on('download-progress', p => setUpdate({ state: 'downloading', version: updateState.version, percent: Math.round(p.percent) }));
   autoUpdater.on('update-downloaded', i => {
+    snapshotData('before-' + i.version);
     prefs.pendingNotes = { version: i.version, notes: plain(i.releaseNotes) }; savePrefs();
     setUpdate({ state: 'ready', version: i.version, notes: plain(i.releaseNotes) });
   });
@@ -180,7 +182,7 @@ ipcMain.handle('update:setKey', async (e, key) => {
 });
 ipcMain.handle('update:state', () => ({ ...updateState, current: app.getVersion(), justUpdated: takeNotes(), hasKey: !!prefs.updateKey }));
 ipcMain.handle('update:check', async () => { if (!autoUpdater) return updateState; try { await autoUpdater.checkForUpdates(); } catch (e) { setUpdate({ state: 'error', error: e.message }); } return updateState; });
-ipcMain.handle('update:install', () => { if (autoUpdater && updateState.state === 'ready') { quitting = true; autoUpdater.quitAndInstall(true, true); } });
+ipcMain.handle('update:install', () => { if (autoUpdater && updateState.state === 'ready') { snapshotData('before-' + updateState.version); quitting = true; autoUpdater.quitAndInstall(true, true); } });
 function takeNotes() {
   const n = prefs.pendingNotes;
   if (n && n.version === app.getVersion()) { delete prefs.pendingNotes; savePrefs(); return n; }
@@ -655,13 +657,47 @@ ipcMain.handle('custom:clear', (e, slot) => {
   return { ok: true, urls: customUrls() };
 });
 
+/* ------------------------------------------------------------------ your data: kept safe across updates
+   Everything Jarvis knows about you lives in %APPDATA%\Jarvis, which installs and updates never touch.
+   On top of that: the window's storage (memories, settings, chat) is mirrored to jarvis-data.json, and a
+   full snapshot is copied to backups\ before every update is installed. */
+const dataDir = () => app.getPath('userData');
+const mirrorFile = () => path.join(dataDir(), 'jarvis-data.json');
+const DATA_FILES = ['prefs.json', 'todo.json', 'jarvis-data.json'];
+function snapshotData(label) {
+  try {
+    const root = path.join(dataDir(), 'backups'), stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    const dir = path.join(root, label.replace(/[^\w.-]/g, '_') + '_' + stamp);
+    if (label !== 'manual' && fs.existsSync(root) && fs.readdirSync(root).some(n => n.startsWith(label.replace(/[^\w.-]/g, '_') + '_'))) return dir;   // already saved for this update
+    fs.mkdirSync(dir, { recursive: true });
+    for (const n of DATA_FILES) { try { fs.copyFileSync(path.join(dataDir(), n), path.join(dir, n)); } catch {} }
+    try { fs.cpSync(path.join(dataDir(), 'custom'), path.join(dir, 'custom'), { recursive: true }); } catch {}
+    const all = fs.readdirSync(root).filter(n => fs.statSync(path.join(root, n)).isDirectory()).sort((a, b) => fs.statSync(path.join(root, a)).mtimeMs - fs.statSync(path.join(root, b)).mtimeMs);
+    all.slice(0, -10).forEach(n => { try { fs.rmSync(path.join(root, n), { recursive: true, force: true }); } catch {} });   // keep the last 10
+    return dir;
+  } catch { return null; }
+}
+ipcMain.on('data:mirrorLoadSync', e => { try { e.returnValue = JSON.parse(fs.readFileSync(mirrorFile(), 'utf8')); } catch { e.returnValue = null; } });
+ipcMain.handle('data:mirror', (e, obj) => { try { if (obj && typeof obj === 'object' && Object.keys(obj).length) writeSafe(mirrorFile(), JSON.stringify(obj)); return true; } catch { return false; } });
+ipcMain.handle('data:backupNow', () => { const d = snapshotData('manual'); return d ? { ok: true, dir: d } : { ok: false }; });
+ipcMain.handle('data:openFolder', () => shell.openPath(path.join(dataDir(), fs.existsSync(path.join(dataDir(), 'backups')) ? 'backups' : '')));
+// first launch after an update: snapshot what came through, so there is always a copy from every version
+app.whenReady().then(() => { if (prefs.lastVersion && prefs.lastVersion !== app.getVersion()) snapshotData('after-' + app.getVersion()); if (prefs.lastVersion !== app.getVersion()) { prefs.lastVersion = app.getVersion(); savePrefs(); } });
+
 /* ------------------------------------------------------------------ To-Do: saved to %APPDATA%\\Jarvis\\todo.json */
 const todoFile = () => path.join(app.getPath('userData'), 'todo.json');
-ipcMain.handle('todo:load', () => { try { return JSON.parse(fs.readFileSync(todoFile(), 'utf8')); } catch { return null; } });
+ipcMain.handle('todo:load', () => {
+  try { return JSON.parse(fs.readFileSync(todoFile(), 'utf8')); } catch {}
+  // missing or damaged: fall back to the newest daily backup, then the newest update snapshot
+  const d = dataDir(), cands = fs.readdirSync(d).filter(n => /^todo\.backup-.*\.json$/.test(n)).sort().reverse().map(n => path.join(d, n));
+  try { const root = path.join(d, 'backups'); fs.readdirSync(root).sort().reverse().forEach(n => cands.push(path.join(root, n, 'todo.json'))); } catch {}
+  for (const f of cands) { try { const v = JSON.parse(fs.readFileSync(f, 'utf8')); if (fs.existsSync(todoFile())) fs.copyFileSync(todoFile(), todoFile() + '.damaged'); return v; } catch {} }
+  return null;
+});
 ipcMain.handle('todo:save', (e, data) => {
   try {
-    const f = todoFile(), tmp = f + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data)); fs.renameSync(tmp, f);          // atomic: never a half-written file
+    const f = todoFile();
+    writeSafe(f, JSON.stringify(data));
     const bak = path.join(app.getPath('userData'), 'todo.backup-' + new Date().toISOString().slice(0, 10) + '.json');
     if (!fs.existsSync(bak)) {
       fs.copyFileSync(f, bak);
