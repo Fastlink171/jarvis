@@ -1,6 +1,10 @@
-## M.I.K.U 1.16.0
+## M.I.K.U 1.17.0
 
-- **The app is now called M.I.K.U** everywhere: the installer, Start menu, desktop shortcut, taskbar and window. Old "Jarvis" shortcuts are tidied away, and your To-Do, memories and settings carry over untouched.
-- **Every visible "Jarvis" now uses your assistant's name**, including chat, reminders, the tray menu, the To-Do and spoken replies. The default name is Miku.
-- **App icon from your own picture:** Settings → App icon → Choose picture. It's used for the window, taskbar, tray and shortcuts, and stays on your PC.
-- **Ask about updates:** say or type "are there any updates?" to get the current version, whether a new one is out and what it changes. Say "update now" to install a downloaded update (it asks first and backs up your data).
+- **To-Do scene:** Settings → Theme → **Load To-Do scene…** puts a layered picture behind the To-Do planner. The camera follows your mouse, a lantern-style glow flickers, and specks drift. The planner switches to a matching night-blue and lantern-gold look.
+- **Better hearing:**
+  - Background game audio or music no longer drowns out your voice.
+  - Quiet microphones are boosted before transcribing.
+  - There's a little more patience for pauses mid-sentence.
+- **The wake name catches sound-alikes** like "Nico", "Mikey" and "Micah", so "Hey Miku" works more often.
+- **She tells you when she didn't catch something** and listens again, instead of just beeping. Missed phrases show in the LOG, so you can see what she heard.
+- **App icon in one click:** Settings → App icon → **Use pet picture**. It also updates a pinned taskbar icon and refreshes Windows' icon cache.
