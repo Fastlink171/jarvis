@@ -210,6 +210,8 @@
   <div class="panel">
     <div class="ph">Settings <span><button class="chipbtn" id="closeModal">✕ CLOSE</button></span></div>
     <div class="field"><label>YOUR NAME</label><input class="fld" id="nameIn" placeholder="What should Jarvis call you?"></div>
+    <div class="field"><label>ASSISTANT NAME · ALSO THE WAKE WORD (“HEY …”)</label><input class="fld" id="aiNameIn" placeholder="Jarvis" maxlength="24">
+      <p class="note" style="margin-top:4px">“Jarvis” uses the built-in wake-word detector. Any other name is heard with speech recognition — works the same, uses a little more CPU while people are talking.</p></div>
 
     <div class="field"><label>BRAIN (INSTALLED MODELS)</label><select id="modelSel"></select>
       <div class="acts"><button class="btn" id="moreModels">GET ANOTHER MODEL</button><button class="btn" id="refreshModels">REFRESH</button></div>
