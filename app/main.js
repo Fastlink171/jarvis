@@ -654,3 +654,20 @@ ipcMain.handle('custom:clear', (e, slot) => {
   delete prefs.custom[slot]; savePrefs();
   return { ok: true, urls: customUrls() };
 });
+
+/* ------------------------------------------------------------------ To-Do: saved to %APPDATA%\\Jarvis\\todo.json */
+const todoFile = () => path.join(app.getPath('userData'), 'todo.json');
+ipcMain.handle('todo:load', () => { try { return JSON.parse(fs.readFileSync(todoFile(), 'utf8')); } catch { return null; } });
+ipcMain.handle('todo:save', (e, data) => {
+  try {
+    const f = todoFile(), tmp = f + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data)); fs.renameSync(tmp, f);          // atomic: never a half-written file
+    const bak = path.join(app.getPath('userData'), 'todo.backup-' + new Date().toISOString().slice(0, 10) + '.json');
+    if (!fs.existsSync(bak)) {
+      fs.copyFileSync(f, bak);
+      const old = fs.readdirSync(app.getPath('userData')).filter(n => /^todo\.backup-.*\.json$/.test(n)).sort().slice(0, -7);
+      old.forEach(n => { try { fs.unlinkSync(path.join(app.getPath('userData'), n)); } catch {} });   // keep a week of daily backups
+    }
+    return true;
+  } catch (err) { return false; }
+});

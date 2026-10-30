@@ -23,3 +23,18 @@ const ortDir = R('app/renderer/ort'); fs.mkdirSync(ortDir, { recursive: true });
 const ortSrc = [R('node_modules/@huggingface/transformers/node_modules/onnxruntime-web'), R('node_modules/onnxruntime-web')].find(d => fs.existsSync(path.join(d, 'dist')));
 for (const f of ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm']) fs.copyFileSync(path.join(ortSrc, 'dist', f), path.join(ortDir, f));
 console.log('renderer built');
+
+// To-Do: one source (src/todo) -> Jarvis's screen (app/renderer/todo.html), the helpers Jarvis's voice commands use
+// (app/renderer/todo-core.js) and the stand-alone web page (dist-web/todo.html).
+{
+  const core = fs.readFileSync(R('src/todo/core.js'), 'utf8');
+  const page = fs.readFileSync(R('src/todo/page.html'), 'utf8').replace('/*__CORE__*/', () => core);
+  fs.writeFileSync(R('app/renderer/todo-core.js'), core);
+  const head = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\' \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com; font-src \'self\' https://fonts.gstatic.com data:; img-src \'self\' data:">' +
+    '<style>[hidden]{display:none!important}</style></head><body>';
+  fs.writeFileSync(R('app/renderer/todo.html'), head + page + '</body></html>');
+  fs.mkdirSync(R('dist-web'), { recursive: true });
+  fs.writeFileSync(R('dist-web/todo.html'), page);
+}
+console.log('to-do built');

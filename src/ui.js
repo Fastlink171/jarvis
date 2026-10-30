@@ -23,7 +23,7 @@ const MODELS = [
 /* ============================================================ state */
 const S = {
   info:{}, name:store.get('name', ''), ollama:false, models:[], model:store.get('model', ''), caps:[], modelSize:0,
-  deep:store.get('deep', false), duck:store.get('duck', true), visible:true, media:[], apps:[],
+  deep:store.get('deep', false), duck:store.get('duck', true), visible:true, media:[], apps:[], todoOpen:false, remind:store.get('remind', true),
   theme:(store.get('theme18', false) ? store.get('theme', 'neon') : (store.set('theme18', true), store.set('theme', 'neon'), 'neon')),
   pet:store.get('pet', true), custom:{}, wallImg:null, petScale:store.get('petScale', 1), wallDim:store.get('wallDim', 0.35),
   screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
@@ -194,12 +194,119 @@ function renderMem(){
     : '<tr><td class="muted" colspan="2">empty · say “remember that…”</td></tr>';
   $('#memList').innerHTML = S.memories.map((m, i) => `<div class="it"><span>${esc(m.text)}</span><time>${ago(m.t)}</time><button data-i="${i}">✕</button></div>`).join('') || '<div class="muted">Nothing remembered yet.</div>';
 }
-function saveTasks(){ store.set('tasks', S.tasks); renderTasks(); }
-function renderTasks(){
-  $('#taskCount').textContent = '// ' + S.tasks.filter(t => !t.done).length;
-  $('#tasks').innerHTML = S.tasks.length ? S.tasks.map((t, i) => `<div class="task ${t.done ? 'done' : ''}"><input type="checkbox" data-i="${i}" ${t.done ? 'checked' : ''}><span>${esc(t.text)}</span><button data-del="${i}">✕</button></div>`).join('')
-    : '<div class="muted">No tasks. Tell Jarvis to add one.</div>';
+/* ---- To-Do: Jarvis keeps the tasks (file on the PC); the To-Do screen and the AI share them */
+const TC = window.TodoCore;
+const TODO = {
+  tasks: {}, subs: new Set(), saveT: 0,
+  all() { return JSON.parse(JSON.stringify(this.tasks)); },
+  list() { return Object.values(this.tasks); },
+  put(t) { this.tasks[t.id] = { ...t, kind: 'task' }; this.changed(); },
+  del(id) { delete this.tasks[id]; this.changed(); },
+  subscribe(cb) { this.subs.add(cb); return () => this.subs.delete(cb); },
+  close() { closeTodo(); },
+  changed(skipSave) {
+    if (!skipSave) { clearTimeout(this.saveT); this.saveT = setTimeout(() => J.todo.save(this.tasks), 250); }
+    for (const cb of [...this.subs]) { try { cb(this.all()); } catch { this.subs.delete(cb); } }   // a reloaded frame leaves dead listeners
+    renderTodoGlance();
+  }
+};
+window.jarvisTodo = TODO;
+document.getElementById('todoFrame').src = 'todo.html';     // load the To-Do screen only once its store exists
+const todoNewId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const todoCmp = (a, b) => {
+  const k = t => [t.date || '9999-12-31', t.time ? TC.minutes(t.time) : 1441, -TC.TAGS[t.tag].w, t.created || 0];
+  const x = k(a), y = k(b); for (let i = 0; i < x.length; i++) { if (x[i] < y[i]) return -1; if (x[i] > y[i]) return 1; } return 0;
+};
+function todoRange(range) {
+  const t0 = TC.ymd(TC.today()), t1 = TC.ymd(TC.addDays(TC.today(), 1)), we = TC.ymd(TC.addDays(TC.startOfWeek(TC.today()), 6));
+  const open = TODO.list().filter(t => !t.done).sort(todoCmp);
+  return {
+    overdue: open.filter(t => t.date && t.date < t0), today: open.filter(t => t.date === t0), tomorrow: open.filter(t => t.date === t1),
+    week: open.filter(t => t.date && t.date >= t0 && t.date <= we), upcoming: open.filter(t => t.date && t.date >= t0),
+    unscheduled: open.filter(t => !t.date), all: open
+  }[range] || open;
 }
+const todoWhen = t => t.date ? TC.relDay(t.date) + (t.time ? ' at ' + TC.fmtTime(t.time) : '') : 'no date';
+function todoFind(q) {
+  q = String(q || '').toLowerCase().trim(); if (!q) return null;
+  const open = TODO.list().filter(t => !t.done).sort(todoCmp);
+  return open.find(t => t.title.toLowerCase() === q) || open.find(t => t.title.toLowerCase().includes(q)) || open.find(t => q.includes(t.title.toLowerCase())) ||
+    open.find(t => q.split(/\s+/).filter(w => w.length > 3).some(w => t.title.toLowerCase().includes(w)));
+}
+function todoAdd(title, when, tag, dur, notes) {
+  const p = TC.parseQuick((title || '') + ' ' + (when || ''));
+  const t = { id: todoNewId(), kind: 'task', title: p.title || title, date: p.date, time: p.time, dur: dur || p.dur || (p.time ? 30 : 0),
+    tag: TC.TAGS[tag] ? tag : (p.tag || 'medium'), notes: notes || '', subs: [], repeat: 'none', done: false, doneAt: null, created: Date.now() };
+  TODO.put(t); return t;
+}
+function renderTodoGlance() {
+  const box = $('#todoGlance'); if (!box) return;
+  const over = todoRange('overdue'), next = [...over, ...todoRange('upcoming')].slice(0, 5);
+  $('#todoBadge').textContent = over.length + todoRange('today').length || '';
+  if (!next.length) { box.innerHTML = '<div class="muted">Nothing coming up. Say “Hey Jarvis, add …” or open the To-Do.</div>'; return; }
+  box.innerHTML = next.map(t => `<div class="ti" data-id="${t.id}"><i class="${t.tag}"></i><span>${esc(t.title)}</span><em class="${t.date && t.date < TC.ymd(TC.today()) ? 'late' : ''}">${esc(todoWhen(t))}</em></div>`).join('');
+}
+async function loadTodo() {
+  const data = await J.todo.load();
+  if (data && typeof data === 'object') TODO.tasks = data;
+  // bring over the simple task list from earlier versions, once
+  const old = store.get('tasks', []);
+  if (Array.isArray(old) && old.length && !store.get('todoMigrated', false)) {
+    old.forEach((x, i) => { const id = todoNewId() + i; TODO.tasks[id] = { id, kind: 'task', title: x.text, date: null, time: null, dur: 0, tag: 'medium', notes: '', subs: [], repeat: 'none', done: !!x.done, doneAt: x.done ? Date.now() : null, created: Date.now() + i }; });
+    store.set('todoMigrated', true); TODO.changed(); return;
+  }
+  TODO.changed(true);
+}
+
+/* ---- the To-Do screen: circular reveal from where it was opened, glowing edge ring, scanline, then the page's own cascade */
+function whoosh(up) {
+  try {
+    const c = new AudioContext(), n = c.sampleRate * .45, buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+    const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = buf; f.type = 'bandpass'; f.Q.value = 1.4;
+    f.frequency.setValueAtTime(up ? 500 : 2600, c.currentTime); f.frequency.exponentialRampToValueAtTime(up ? 2600 : 500, c.currentTime + .4);
+    g.gain.value = .07; src.connect(f); f.connect(g); g.connect(c.destination); src.start(); setTimeout(() => c.close(), 700);
+  } catch {}
+}
+let todoAnim = null, todoOrigin = null;
+function openTodo(fromEl) {
+  if (S.todoOpen) return;
+  S.todoOpen = true;
+  const layer = $('#todoLayer'), fx = $('#todoFx'), frame = $('#todoFrame');
+  const src = fromEl && fromEl.getBoundingClientRect ? fromEl : $('#tbTodo');
+  const r = src.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+  todoOrigin = { x, y };
+  const R = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y)) + 20;
+  layer.hidden = false;
+  try { frame.contentWindow.postMessage('todo:open', '*'); } catch {}
+  setTimeout(() => { try { frame.contentWindow.focus(); } catch {} }, 60);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  whoosh(true);
+  const ease = 'cubic-bezier(.76,0,.18,1)';
+  todoAnim && todoAnim.cancel();
+  todoAnim = layer.animate([{ clipPath: `circle(0px at ${x}px ${y}px)` }, { clipPath: `circle(${R}px at ${x}px ${y}px)` }], { duration: 760, easing: ease });
+  fx.hidden = false; fx.style.setProperty('--fx', x + 'px'); fx.style.setProperty('--fy', y + 'px');
+  const [ring, ring2, scan, flash] = fx.children;
+  [ring, ring2].forEach((rg, i) => { rg.style.left = x + 'px'; rg.style.top = y + 'px';
+    rg.animate([{ width: '0px', height: '0px', opacity: 1 }, { width: R * 2 + 'px', height: R * 2 + 'px', opacity: i ? .0 : .9, offset: .85 }, { width: R * 2 + 'px', height: R * 2 + 'px', opacity: 0 }], { duration: 760 + i * 140, delay: i * 90, easing: ease, fill: 'both' }); });
+  flash.animate([{ opacity: 0 }, { opacity: 1, offset: .25 }, { opacity: 0 }], { duration: 700, easing: 'ease-out', fill: 'both' });
+  scan.animate([{ top: '-4px', opacity: 0 }, { opacity: 1, offset: .15 }, { opacity: 1, offset: .8 }, { top: innerHeight + 'px', opacity: 0 }], { duration: 620, delay: 420, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both' });
+  setTimeout(() => { fx.hidden = true; }, 1200);
+  event('opened To-Do');
+}
+function closeTodo() {
+  if (!S.todoOpen) return;
+  S.todoOpen = false;
+  const layer = $('#todoLayer'), o = todoOrigin || { x: innerWidth / 2, y: 20 };
+  const R = Math.hypot(Math.max(o.x, innerWidth - o.x), Math.max(o.y, innerHeight - o.y)) + 20;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { layer.hidden = true; return; }
+  whoosh(false);
+  todoAnim && todoAnim.cancel();
+  todoAnim = layer.animate([{ clipPath: `circle(${R}px at ${o.x}px ${o.y}px)`, opacity: 1 }, { clipPath: `circle(0px at ${o.x}px ${o.y}px)`, opacity: .6 }], { duration: 440, easing: 'cubic-bezier(.6,0,.85,.25)' });
+  todoAnim.onfinish = () => { if (!S.todoOpen) layer.hidden = true; };
+}
+
 const NUMW = { a:1, an:1, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, fifteen:15, twenty:20, thirty:30, forty:40, 'forty-five':45, sixty:60, ninety:90, half:0.5 };
 const toNum = w => { w = String(w).toLowerCase(); return isNaN(+w) ? (NUMW[w] ?? null) : +w; };
 const unitMs = u => /^s/.test(u) ? 1000 : /^h/.test(u) ? 3600000 : 60000;
@@ -214,6 +321,22 @@ function renderTimers(){
 }
 function beep(){
   try { const c = new AudioContext(); [0, .35, .7].forEach(d => { const o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; o.connect(g); g.connect(c.destination); g.gain.setValueAtTime(.0001, c.currentTime + d); g.gain.exponentialRampToValueAtTime(.25, c.currentTime + d + .02); g.gain.exponentialRampToValueAtTime(.0001, c.currentTime + d + .25); o.start(c.currentTime + d); o.stop(c.currentTime + d + .3); }); } catch {}
+}
+function tickTodoReminders(){
+  if (!S.remind) return;
+  const now = new Date(), t0 = TC.ymd(TC.today()), nowM = now.getHours() * 60 + now.getMinutes();
+  const sent = store.get('todoReminded', {});
+  for (const t of TODO.list()) {
+    if (t.done || t.date !== t0 || !t.time) continue;
+    const key = t.id + '|' + t.date + '|' + t.time, left = TC.minutes(t.time) - nowM;
+    if (left <= 10 && left >= 0 && !sent[key]) {
+      sent[key] = Date.now();
+      const msg = left <= 1 ? `Sir, it’s time for ${t.title}.` : `Sir, in ${left} minutes: ${t.title}.`;
+      reply(msg); try { new Notification('Jarvis · To-Do', { body: `${t.title} — ${TC.fmtTime(t.time)}` }); } catch {} J.flash();
+    }
+  }
+  for (const k of Object.keys(sent)) if (Date.now() - sent[k] > 3 * 86400000) delete sent[k];
+  store.set('todoReminded', sent);
 }
 function tickTimers(){
   const now = Date.now(), due = S.timers.filter(t => t.end <= now);
@@ -335,8 +458,11 @@ const TOOLS = [
   { name:'read_file', description:'Read a text file (or list a folder) on the PC. Paths can start with Desktop, Documents or Downloads.', params:{ path:{ type:'string' } }, required:['path'] },
   { name:'write_file', description:'Create or overwrite a text file on the PC (notes, scripts, lists). Paths can start with Desktop, Documents or Downloads.', params:{ path:{ type:'string' }, content:{ type:'string' } }, required:['path', 'content'] },
   { name:'remember', description:'Save a lasting fact about the user or their preferences so you remember it in future conversations.', params:{ fact:{ type:'string' } }, required:['fact'] },
-  { name:'add_task', description:'Add an item to the user\'s task list.', params:{ text:{ type:'string' } }, required:['text'] },
-  { name:'complete_task', description:'Mark a task on the list as done.', params:{ text:{ type:'string', description:'the task (or part of it)' } }, required:['text'] },
+  { name:'add_task', description:'Add a task to the user\'s To-Do planner (it shows on their calendar). Use tag small / medium / important for how big or urgent it is.', params:{ title:{ type:'string' }, when:{ type:'string', description:'when it is due, in plain words: "today", "tomorrow 3pm", "friday", "nov 12 10:30am". Empty = no date' }, tag:{ type:'string', enum:['small', 'medium', 'important'] }, duration_minutes:{ type:'number' }, notes:{ type:'string' } }, required:['title'] },
+  { name:'list_tasks', description:'Read the user\'s To-Do planner: tasks in order of when they are due.', params:{ range:{ type:'string', enum:['overdue', 'today', 'tomorrow', 'week', 'upcoming', 'unscheduled', 'all'] } }, required:['range'] },
+  { name:'complete_task', description:'Mark a To-Do task as done.', params:{ text:{ type:'string', description:'the task (or part of its name)' } }, required:['text'] },
+  { name:'reschedule_task', description:'Move a To-Do task to a new day/time.', params:{ text:{ type:'string', description:'the task (or part of its name)' }, when:{ type:'string', description:'new time in plain words, e.g. "monday 9am"' } }, required:['text', 'when'] },
+  { name:'open_todo', description:'Show the To-Do planner (calendar and list) on screen.', params:{}, required:[] },
   { name:'set_timer', description:'Start a timer, or a reminder when a label is given. Jarvis will speak up when it ends.', params:{ minutes:{ type:'number' }, label:{ type:'string', description:'what to remind about (optional)' } }, required:['minutes'] },
   { name:'get_weather', description:'Current weather and 3-day forecast. Leave city empty for the user\'s saved location.', params:{ city:{ type:'string' } }, required:[] },
   { name:'system_status', description:'CPU, memory, disk, uptime and top processes of this PC.', params:{}, required:[] },
@@ -407,10 +533,26 @@ async function runTool(name, args){
         return r.ok ? 'Saved to ' + r.path : 'Could not save: ' + r.error;
       }
       case 'remember': addMemory(args.fact); toolLine('✦', 'Remembered: ' + args.fact); return 'Saved to memory.';
-      case 'add_task': S.tasks.push({ text: String(args.text), done:false }); saveTasks(); toolLine('☐', 'Task added: ' + args.text); return 'Task added.';
+      case 'add_task': {
+        const t = todoAdd(String(args.title || args.text || ''), args.when, args.tag, args.duration_minutes, args.notes);
+        toolLine('☐', `To-Do: ${t.title} — ${todoWhen(t)} · ${TC.TAGS[t.tag].label}`); countAction();
+        return `Added "${t.title}" (${TC.TAGS[t.tag].label}) for ${todoWhen(t)}.`;
+      }
+      case 'list_tasks': {
+        const L = todoRange(args.range || 'upcoming');
+        if (!L.length) return 'No open tasks in that range.';
+        return L.slice(0, 25).map(t => `- ${t.title} | ${todoWhen(t)} | ${TC.TAGS[t.tag].label}${t.dur ? ' | ' + TC.fmtDur(t.dur) : ''}${t.subs && t.subs.length ? ' | ' + t.subs.filter(x => x.done).length + '/' + t.subs.length + ' steps' : ''}`).join('\n');
+      }
+      case 'reschedule_task': {
+        const t = todoFind(args.text); if (!t) return 'No matching open task.';
+        const p = TC.parseQuick('x ' + args.when); if (!p.date) return 'I could not understand that time.';
+        TODO.put({ ...t, date: p.date, time: p.time || t.time }); const nt = TODO.tasks[t.id];
+        toolLine('↻', `Moved: ${t.title} → ${todoWhen(nt)}`); return `Moved "${t.title}" to ${todoWhen(nt)}.`;
+      }
+      case 'open_todo': openTodo(); return 'The To-Do planner is open on screen.';
       case 'complete_task': {
-        const q = String(args.text || '').toLowerCase(); const t = S.tasks.find(x => !x.done && x.text.toLowerCase().includes(q)) || S.tasks.find(x => !x.done && q.includes(x.text.toLowerCase()));
-        if (!t) return 'No matching open task.'; t.done = true; saveTasks(); toolLine('☑', 'Done: ' + t.text); return 'Marked done: ' + t.text;
+        const t = todoFind(args.text); if (!t) return 'No matching open task.';
+        TODO.put({ ...t, done: true, doneAt: Date.now() }); toolLine('☑', 'Done: ' + t.title); return 'Marked done: ' + t.title;
       }
       case 'set_timer': {
         const ms = Math.max(1, +args.minutes || 0) * 60000; addTimer(ms, args.label || '', args.label ? 'reminder' : 'timer');
@@ -495,12 +637,13 @@ async function runTool(name, args){
 
 /* ============================================================ the brain */
 function systemPrompt(){
-  const open = S.tasks.filter(t => !t.done).map(t => t.text);
+  const todoSnap = [...todoRange('overdue'), ...todoRange('today'), ...todoRange('tomorrow')].slice(0, 12).map(t => `${t.title} (${todoWhen(t)}, ${TC.TAGS[t.tag].label})`);
+  const open = todoSnap;
   const mem = S.memories.slice(0, 50).map(m => '- ' + m.text).join('\n');
   return `You are J.A.R.V.I.S. ("Jarvis"), a personal AI assistant living on ${userName()}'s Windows PC (${S.info.computer || 'this PC'}, ${S.info.os || 'Windows'}). You run entirely on this computer.
 Current date and time: ${new Date().toLocaleString([], { weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'numeric', minute:'2-digit' })}.
 User's name: ${userName()}. Home folder: ${S.info.home || ''}. PowerShell current folder: ${S.cwd || S.info.home || ''}.
-${pcSnapshot()}${S.gaming ? `The user is playing ${S.gameApp} in fullscreen right now: do not bring other windows to the front unless they ask, keep replies very short.\n` : ''}${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${open.length ? 'Open tasks: ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
+${pcSnapshot()}${S.gaming ? `The user is playing ${S.gameApp} in fullscreen right now: do not bring other windows to the front unless they ask, keep replies very short.\n` : ''}${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${open.length ? 'To-Do (overdue, today, tomorrow): ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
 PERSONALITY: calm, capable, quietly witty, British, loyal. Address the user as "sir" occasionally, not every sentence.
 
 HOW YOU WORK:
@@ -760,6 +903,17 @@ async function handle(text){
     if (target) { J.open(target); countAction(); return reply(pick(['Opening ' + name + '.', 'Right away.', 'On it.'])); }
   }
   if (/^(stop listening|go to sleep|goodbye|that'?s all)$/.test(t)) { setWake(false); return reply('Very good, sir. I’ll be here.'); }
+  if (/^(?:open|show|bring up|pull up)(?: me)? (?:my |the )?(?:to-?do(?: list)?|todo|tasks|planner|calendar|schedule)$/.test(t)) { openTodo(); return reply(pick(['Here’s your planner, sir.', 'Your To-Do, sir.', 'Opening your planner.'])); }
+  if (/^(?:close|hide) (?:my |the )?(?:to-?do(?: list)?|todo|tasks|planner|calendar)$/.test(t)) { closeTodo(); return; }
+  if ((m = t.match(/^(?:what(?:'?s| is| do i have)|what have i got) (?:on |due |planned )?(?:for |on )?(?:my )?(today|tomorrow|this week|to-?do(?: list)?|todo)(?: today)?$/)) || (m = t.match(/^what(?:'?s| is) due (today|tomorrow|this week)$/))) {
+    const key = /tomorrow/.test(m[1]) ? 'tomorrow' : /week/.test(m[1]) ? 'week' : 'today';
+    const L = todoRange(key), over = key === 'today' ? todoRange('overdue') : [];
+    const say = x => x.title + (x.time ? ' at ' + TC.fmtTime(x.time) : '') + (x.tag === 'important' ? ', which is important' : '');
+    if (!L.length && !over.length) return reply(key === 'tomorrow' ? 'Nothing planned for tomorrow, sir.' : key === 'week' ? 'Your week is clear, sir.' : 'Nothing due today, sir.');
+    let line = L.length ? `${L.length} thing${L.length > 1 ? 's' : ''} ${key === 'week' ? 'left this week' : key}: ` + L.slice(0, 5).map(say).join('; ') + '.' : '';
+    if (over.length) line += ` ${over.length} overdue: ` + over.slice(0, 3).map(x => x.title).join(', ') + '.';
+    return reply(line.trim());
+  }
   const media = await quickMedia(t);
   if (media !== null) { if (media) return reply(media); addMsg('jarvis', pick(['Done.', 'Done, sir.', 'Of course.'])); return; }
   if (/^(run|execute) /i.test(text)) { const cmd = text.replace(/^(run|execute)( the)?( command)?[: ]+/i, ''); await runPS(cmd); return speak('Done.'); }
@@ -990,7 +1144,7 @@ function fillVoiceSelect(){
 let lastFrame = 0;
 function frame(t){
   requestAnimationFrame(frame);
-  if (document.hidden || !S.visible) return;
+  if (document.hidden || !S.visible || (S.todoOpen && !todoAnim?.playState?.includes('running'))) return;
   // fewer frames while the AI is thinking (it shares the graphics card) or when Jarvis isn't the active window
   let fps = Q.fps; if (S.thinking) fps = Math.min(fps, 20); if (!document.hasFocus()) fps = Math.min(fps, 10);
   if (t - lastFrame < 1000 / fps - 2) return;
@@ -1014,6 +1168,7 @@ function tick(){
   $('#clock').textContent = d.toLocaleTimeString([], { hour12:false });
   $('#date').textContent = d.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' }).toUpperCase();
   tickTimers();
+  if (new Date().getSeconds() % 20 === 0) tickTodoReminders();
 }
 
 /* ============================================================ wiring */
@@ -1024,6 +1179,7 @@ function wire(){
   document.addEventListener('keydown', e => {
     const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
     if (!typing && (e.key === 'm' || e.key === 'M')) { e.preventDefault(); talk(); }
+    if (e.key === 'Escape' && S.todoOpen) { closeTodo(); return; }
     if (e.key === 'Escape') { interrupt(); if (V) V.cancelListen(); S.listening = false; setState(); $('#modal').classList.remove('show'); $('#drawer').classList.remove('show'); }
   });
   J.on('hotkey:talk', () => talk());
@@ -1071,8 +1227,11 @@ function wire(){
   $('#memAdd').onclick = () => { const v = $('#memIn').value.trim(); if (v) { addMemory(v); $('#memIn').value = ''; } };
   $('#memIn').onkeydown = e => { if (e.key === 'Enter') $('#memAdd').click(); };
   $('#memList').onclick = e => { const i = e.target.dataset.i; if (i != null) { S.memories.splice(+i, 1); saveMem(); } };
-  $('#taskIn').onkeydown = e => { if (e.key === 'Enter' && e.target.value.trim()) { S.tasks.push({ text: e.target.value.trim(), done:false }); e.target.value = ''; saveTasks(); } };
-  $('#tasks').onclick = e => { const d = e.target.dataset; if (d.del != null) { S.tasks.splice(+d.del, 1); saveTasks(); } else if (d.i != null) { S.tasks[+d.i].done = e.target.checked; saveTasks(); } };
+  $('#todoQuick').onkeydown = e => { if (e.key === 'Enter' && e.target.value.trim()) { const t = todoAdd(e.target.value.trim()); e.target.value = ''; event('To-Do: ' + t.title + ' — ' + todoWhen(t)); } };
+  $('#tbTodo').onclick = e => openTodo(e.currentTarget);
+  $('#todoOpenBtn').onclick = e => openTodo(e.currentTarget);
+  $('#todoGlance').onclick = e => { if (e.target.closest('.ti')) openTodo(e.target.closest('.ti')); };
+  $('#remindChk').checked = S.remind; $('#remindChk').onchange = e => { S.remind = e.target.checked; store.set('remind', S.remind); };
 
   $('#wSet').onclick = () => { const v = $('#wCity').value.trim(); if (v) setCity(v); };
   $('#wCity').onkeydown = e => { if (e.key === 'Enter') $('#wSet').click(); };
@@ -1186,7 +1345,8 @@ async function boot(){
   S.info = await J.info();
   if (S.info.platform === 'darwin') document.body.classList.add('mac');
   $('#login').checked = !!S.info.login; $('#trayChk').checked = !!S.info.tray;
-  renderOperator(); renderCounters(); renderMem(); renderTasks(); renderTimers(); renderRelays(); setState();
+  renderOperator(); renderCounters(); renderMem(); renderTimers(); renderRelays(); setState();
+  loadTodo();
   $('#wakePill').classList.toggle('on', S.wake); $('#wakeTxt').textContent = S.wake ? 'ON' : 'OFF';
   applyQuality(); buildScene();
   let rz = 0; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { buildScene(); renderCounters(); }, 200); });

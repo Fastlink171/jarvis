@@ -7,3 +7,6 @@ app/renderer/ui.js
 app/renderer/voice.js
 app/renderer/voice-worker.js
 app/renderer/ort/
+app/renderer/todo.html
+app/renderer/todo-core.js
+dist-web/

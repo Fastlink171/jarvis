@@ -206,3 +206,27 @@ code{color:var(--acc2);background:rgba(0,0,0,.35);padding:1px 5px}
 .crow{display:grid;grid-template-columns:92px 44px 1fr auto auto;gap:6px;align-items:center;font-size:9.5px;color:var(--dim);letter-spacing:.08em}
 .crow .th{width:44px;height:44px;border:1px solid var(--edge);background:rgba(0,0,0,.3) center/contain no-repeat;border-radius:4px}
 .crow .nm{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------------- To-Do screen ---------------- */
+.tbTodo b:empty{display:none}
+.tbTodo b{margin-left:5px;min-width:16px;padding:0 4px;border-radius:8px;background:#ff4d6d;color:#fff;font-size:8.5px;text-align:center}
+.todoLayer{position:fixed;inset:0;z-index:28;display:flex;flex-direction:column;background:#0c0620;will-change:clip-path}
+.todoLayer[hidden]{display:none}
+.todoBar{height:32px;flex:none;-webkit-app-region:drag;display:flex;align-items:center;gap:10px;padding-left:14px;font:600 9px var(--mono);letter-spacing:.32em;color:#a99cd0;
+  background:linear-gradient(90deg,rgba(63,240,216,.10),rgba(255,95,180,.10) 60%,transparent);border-bottom:1px solid rgba(120,240,225,.14)}
+.todoBar i{width:5px;height:5px;border-radius:50%;background:#ff5fb4;box-shadow:0 0 8px #ff5fb4}
+.todoLayer iframe{flex:1;border:0;width:100%;background:transparent}
+.todoFx{position:fixed;inset:0;z-index:29;pointer-events:none;overflow:hidden}
+.todoFx[hidden]{display:none}
+.todoFx .ring{position:absolute;border-radius:50%;transform:translate(-50%,-50%);border:2px solid #3ff0d8;
+  box-shadow:0 0 28px rgba(63,240,216,.9),0 0 70px rgba(255,95,180,.45),inset 0 0 26px rgba(255,95,180,.55)}
+.todoFx .ring.r2{border-color:rgba(255,95,180,.85);box-shadow:0 0 22px rgba(255,95,180,.8)}
+.todoFx .scan{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#3ff0d8 20%,#ff5fb4 80%,transparent);box-shadow:0 0 18px #ff5fb4,0 0 4px #fff}
+.todoFx .flash{position:absolute;inset:0;background:radial-gradient(circle at var(--fx,50%) var(--fy,50%),rgba(63,240,216,.25),transparent 55%)}
+#todoGlance .ti{display:grid;grid-template-columns:7px minmax(0,1fr) auto;gap:7px;align-items:center;padding:4px 0;border-bottom:1px solid var(--edge2);font-size:10px;cursor:pointer}
+#todoGlance .ti i{width:7px;height:7px;border-radius:50%}
+#todoGlance .ti i.small{background:#3ddc84} #todoGlance .ti i.medium{background:#ffd23f} #todoGlance .ti i.important{background:#ff4d6d;box-shadow:0 0 6px #ff4d6d}
+#todoGlance .ti span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#todoGlance .ti em{font-style:normal;color:var(--faint);font-size:9px}
+#todoGlance .ti em.late{color:var(--bad)}
+#todoGlance .ti:hover span{color:var(--acc2)}

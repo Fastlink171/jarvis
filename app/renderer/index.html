@@ -62,6 +62,7 @@
       <button class="tb" id="tbVoice" data-open="settings">VOICE <b>—</b></button>
       <span class="sep"></span>
       <button class="tb" id="tbTimer" data-tab="timers"><span class="ic">◷</span><b id="timerTxt">TIMER</b></button>
+      <button class="tb tbTodo" id="tbTodo"><span class="ic">☑</span>TO-DO <b id="todoBadge"></b></button>
       <button class="tb" data-tab="memory"><span class="ic">✦</span>MEMORY</button>
       <button class="tb" data-tab="console"><span class="ic">›_</span>CONSOLE</button>
       <button class="tb" data-tab="log"><span class="ic">≡</span>LOG</button>
@@ -150,9 +151,9 @@
         <div class="relays" id="relays"></div>
       </div>
       <div class="panel">
-        <div class="ph">Tasks <span id="taskCount">// 0</span></div>
-        <div id="tasks"></div>
-        <div class="mini"><input id="taskIn" placeholder="Add a task"></div>
+        <div class="ph">To-Do <span><button class="chipbtn" id="todoOpenBtn">OPEN ↗</button></span></div>
+        <div id="todoGlance"></div>
+        <div class="mini"><input id="todoQuick" placeholder="Add… e.g. gym tomorrow 7am !small"></div>
       </div>
     </section>
   </main>
@@ -197,6 +198,12 @@
   <div class="pane" id="pane-log"><div class="list" id="events"></div></div>
 </aside>
 
+<div class="todoLayer" id="todoLayer" hidden>
+  <div class="todoBar"><span>J.A.R.V.I.S</span><i></i><span>TO-DO</span></div>
+  <iframe id="todoFrame" title="To-Do"></iframe>
+</div>
+<div class="todoFx" id="todoFx" hidden><div class="ring"></div><div class="ring r2"></div><div class="scan"></div><div class="flash"></div></div>
+
 <div class="modal" id="modal">
   <div class="panel">
     <div class="ph">Settings <span><button class="chipbtn" id="closeModal">✕ CLOSE</button></span></div>
@@ -240,6 +247,7 @@
       <option value="full">Full — glass blur, 60 fps (uses more graphics power)</option>
       <option value="low">Low — calm background, 15 fps (lightest)</option>
     </select></div>
+    <div class="field"><label class="chk"><input type="checkbox" id="remindChk"> REMIND ME 10 MINUTES BEFORE TIMED TO-DO TASKS</label></div>
     <div class="field"><label class="chk"><input type="checkbox" id="celsius"> WEATHER IN °C</label></div>
     <div class="field"><label>UPDATES · VERSION <span id="verTxt">—</span></label>
       <p class="note" id="updTxt">Jarvis checks for new versions automatically.</p>
@@ -252,6 +260,7 @@
   </div>
 </div>
 
+<script src="todo-core.js"></script>
 <script src="ui.js"></script>
 <script type="module" src="voice.js"></script>
 </body>
