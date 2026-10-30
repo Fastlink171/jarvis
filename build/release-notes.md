@@ -1,6 +1,6 @@
-## Jarvis 1.15.0: name your assistant
+## M.I.K.U 1.16.0
 
-- **New in Settings: Assistant name.** Give your assistant any name. The logo, window title, tray menu, chat labels and reminders all use it, and it introduces itself by that name.
-- **The wake phrase follows the name:** "Hey [name], pause the music" works just like "Hey Jarvis". It forgives small spelling differences in what it hears.
-- "Jarvis" keeps the built-in wake-word detector. Other names are heard through speech recognition, which works the same but uses a little more CPU while people are talking nearby.
-- With a name other than Jarvis, the assistant uses a friendly, upbeat personality instead of the British butler.
+- **The app is now called M.I.K.U** everywhere: the installer, Start menu, desktop shortcut, taskbar and window. Old "Jarvis" shortcuts are tidied away, and your To-Do, memories and settings carry over untouched.
+- **Every visible "Jarvis" now uses your assistant's name**, including chat, reminders, the tray menu, the To-Do and spoken replies. The default name is Miku.
+- **App icon from your own picture:** Settings → App icon → Choose picture. It's used for the window, taskbar, tray and shortcuts, and stays on your PC.
+- **Ask about updates:** say or type "are there any updates?" to get the current version, whether a new one is out and what it changes. Say "update now" to install a downloaded update (it asks first and backs up your data).

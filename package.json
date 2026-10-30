@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "description": "M.I.K.U. local AI assistant",
   "main": "app/main.js",
   "scripts": {
