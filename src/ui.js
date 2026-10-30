@@ -112,7 +112,7 @@ function renderCounters(){
 }
 
 /* ============================================================ voice wrappers */
-function voiceOpts(){ return { engine: V && V.voiceReady ? 'kokoro' : 'windows', voice: S.voice, speed: S.rate, rate: S.rate, pitch: 0.9, kpitch: S.kpitch, blend: S.mixVoice && S.mixAmt > 0 ? { voice: S.mixVoice, amount: S.mixAmt } : null }; }
+function voiceOpts(){ return { engine: V && V.voiceReady ? 'kokoro' : 'windows', voice: S.voice, speed: S.rate, rate: S.rate, pitch: 0.9, kpitch: S.kpitch, basePitch: (myVoices.find(v => v.id === S.voice) || {}).pitch || 1, blend: S.mixVoice && S.mixAmt > 0 ? { voice: S.mixVoice, amount: S.mixAmt } : null }; }
 function speak(text){
   if (!text || !V) return Promise.resolve();
   if (S.wake) S.awaitingUntil = 0;
@@ -1143,7 +1143,9 @@ async function loadVoiceModels(fromSetup){
 }
 const VOICE_NOTES = { af_heart:'warm, natural', af_bella:'bright, upbeat', af_nicole:'soft, close', af_sky:'light, airy', af_nova:'clear', af_sarah:'friendly', af_alloy:'even', af_aoede:'gentle', af_jessica:'casual', af_kore:'calm', af_river:'relaxed',
   bf_emma:'calm', bf_isabella:'smooth', bf_alice:'crisp', bf_lily:'gentle', bm_george:'the Jarvis voice', bm_lewis:'warm', bm_daniel:'steady', bm_fable:'storyteller', am_michael:'friendly', am_adam:'deep', am_eric:'clear', am_liam:'young', am_onyx:'very deep', am_echo:'soft', am_puck:'playful', am_fenrir:'bold', am_santa:'jolly' };
+let myVoices = [];   // the user's own voices from %APPDATA%\Jarvis\voices
 function voiceLabel(id){
+  const mine = myVoices.find(v => v.id === id); if (mine) return mine.label + ' — your voice';
   const lang = { a:'American', b:'British', e:'Spanish', f:'French', h:'Hindi', i:'Italian', j:'Japanese', p:'Portuguese', z:'Chinese' };
   const nm = (id.split('_')[1] || id); return nm[0].toUpperCase() + nm.slice(1) + ' — ' + (lang[id[0]] || '') + (VOICE_NOTES[id] ? ', ' + VOICE_NOTES[id] : '');
 }
@@ -1152,7 +1154,7 @@ function voiceGroups(){
   const en = [...new Set(all)].filter(id => /^[ab][fm]_/.test(id));      // English voices sound right with English text
   const order = id => (VOICE_NOTES[id] ? 0 : 1);
   const pick = re => en.filter(id => re.test(id)).sort((x, y) => order(x) - order(y) || x.localeCompare(y));
-  return [['Female — American', pick(/^af_/)], ['Female — British', pick(/^bf_/)], ['Male — British', pick(/^bm_/)], ['Male — American', pick(/^am_/)]].filter(g => g[1].length);
+  return [['Your voices', myVoices.map(v => v.id)], ['Female — American', pick(/^af_/)], ['Female — British', pick(/^bf_/)], ['Male — British', pick(/^bm_/)], ['Male — American', pick(/^am_/)]].filter(g => g[1].length);
 }
 function fillVoiceSelect(){
   const fill = (sel, withNone) => {
@@ -1170,9 +1172,10 @@ function syncVoiceUi(){
   const kok = !!(V && V.voiceReady) && $('#voiceSel').value !== 'windows';
   $('#mixRow').style.opacity = $('#pitchRow').style.opacity = kok ? 1 : .45;
   $('#mixAmt').disabled = !S.mixVoice; $('#mixAmt').value = S.mixAmt;
-  $('#mixV').textContent = S.mixVoice && S.mixAmt > 0 ? Math.round(S.mixAmt * 100) + '% ' + (S.mixVoice.split('_')[1] || '').toUpperCase() : 'OFF';
+  $('#mixV').textContent = S.mixVoice && S.mixAmt > 0 ? Math.round(S.mixAmt * 100) + '% ' + ((myVoices.find(v => v.id === S.mixVoice) || {}).label || S.mixVoice.split('_')[1] || '').toUpperCase() : 'OFF';
   $('#kpitch').value = S.kpitch; $('#pitchV').textContent = (S.kpitch >= 1 ? '+' : '') + Math.round((S.kpitch - 1) * 100) + '%';
-  const nm = (S.voice.split('_')[1] || S.voice).toUpperCase();
+  const mine = myVoices.find(v => v.id === S.voice);
+  const nm = (mine ? mine.label : (S.voice.split('_')[1] || S.voice)).toUpperCase();
   if (V && V.voiceReady) tb('#tbVoice', S.mixVoice && S.mixAmt > 0 ? 'MIX' : nm, 'on');
 }
 
@@ -1288,6 +1291,8 @@ function wire(){
   $('#mixAmt').oninput = e => { S.mixAmt = +e.target.value; store.set('mixAmt', S.mixAmt); syncVoiceUi(); };
   $('#kpitch').oninput = e => { S.kpitch = +e.target.value; store.set('kpitch', S.kpitch); syncVoiceUi(); };
   $('#voicePrev').onclick = () => { stopVoice(); speak(pick(['Hello. This is how I sound now.', 'Ready when you are. What are we doing today?', 'All systems online. How do I sound?'])); };
+  $('#voiceFolder').onclick = () => J.voices.openFolder();
+  J.voices.list().then(v => { myVoices = v || []; fillVoiceSelect(); }).catch(() => {});
   $('#voiceReset').onclick = () => { Object.assign(S, { voice:'bm_george', mixVoice:'', mixAmt:0, kpitch:1, rate:1 }); ['voice','mixVoice','mixAmt','kpitch','rate'].forEach(k => store.set(k, S[k])); $('#rate').value = 1; $('#rateV').textContent = '1.00'; fillVoiceSelect(); };
   $('#rate').value = S.rate; const showR = () => $('#rateV').textContent = (+S.rate).toFixed(2); showR();
   $('#rate').oninput = e => { S.rate = +e.target.value; store.set('rate', S.rate); showR(); };

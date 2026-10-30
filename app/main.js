@@ -104,6 +104,7 @@ app.whenReady().then(() => {
     if (p === '/' || !p) p = '/index.html';
     let file = path.normalize(path.join(ROOT, p));
     if (p.startsWith('/custom/')) file = path.join(customDir(), path.basename(p));     // the user's own pictures
+    else if (p.startsWith('/myvoices/')) file = path.join(voicesDir(), path.basename(p)); // the user's own voices
     else if (!file.startsWith(ROOT)) return new Response('forbidden', { status: 403 });
     try {
       const data = await fs.promises.readFile(file);
@@ -656,6 +657,24 @@ ipcMain.handle('custom:clear', (e, slot) => {
   delete prefs.custom[slot]; savePrefs();
   return { ok: true, urls: customUrls() };
 });
+
+/* ------------------------------------------------------------------ your own voices: Kokoro voice files (.bin) kept on this PC, never in the repo
+// Put name.bin in %APPDATA%\Jarvis\voices. An optional name.json like {"label":"Nova","pitch":1.25} sets its menu name and built-in pitch.
+function voicesDir() { const d = path.join(app.getPath('userData'), 'voices'); try { fs.mkdirSync(d, { recursive: true }); } catch {} return d; }
+ipcMain.handle('voices:list', () => {
+  const out = [];
+  try {
+    for (const f of fs.readdirSync(voicesDir())) {
+      if (!/\.bin$/i.test(f)) continue;
+      const name = f.slice(0, -4); let meta = {};
+      try { meta = JSON.parse(fs.readFileSync(path.join(voicesDir(), name + '.json'), 'utf8')) || {}; } catch {}
+      const pitch = Math.max(0.5, Math.min(2, +meta.pitch || 1));
+      out.push({ id: 'my:' + name, label: String(meta.label || name), pitch });
+    }
+  } catch {}
+  return out;
+});
+ipcMain.handle('voices:openFolder', () => shell.openPath(voicesDir()));
 
 /* ------------------------------------------------------------------ your data: kept safe across updates
    Everything Jarvis knows about you lives in %APPDATA%\Jarvis, which installs and updates never touch.

@@ -252,7 +252,7 @@ async function runQueue() {
 const synthCache = new Map();
 function synth(item) {
   // pitch is applied when playing (faster playback = higher), so render slower by the same amount to keep the pace
-  const pitch = Math.max(.8, Math.min(1.25, +item.opts.kpitch || 1)), speed = (item.opts.speed || 1) / pitch;
+  const pitch = Math.max(.8, Math.min(1.25, +item.opts.kpitch || 1)) * (+item.opts.basePitch || 1), speed = (item.opts.speed || 1) / pitch;
   const blend = item.opts.blend && item.opts.blend.voice && item.opts.blend.amount > 0 ? item.opts.blend : null;
   const key = (item.opts.voice || 'bm_george') + '|' + speed + '|' + (blend ? blend.voice + ':' + blend.amount : '') + '|' + item.text;
   if (synthCache.has(key)) { const c = synthCache.get(key); return Promise.resolve({ samples: c.samples.slice(), rate: c.rate, pitch }); }
