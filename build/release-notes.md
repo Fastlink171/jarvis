@@ -1,4 +1,4 @@
-## Jarvis 1.14.0: name your assistant
+## Jarvis 1.15.0: name your assistant
 
 - **New in Settings: Assistant name.** Give your assistant any name. The logo, window title, tray menu, chat labels and reminders all use it, and it introduces itself by that name.
 - **The wake phrase follows the name:** "Hey [name], pause the music" works just like "Hey Jarvis". It forgives small spelling differences in what it hears.
