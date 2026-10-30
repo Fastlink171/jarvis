@@ -1,6 +1,8 @@
-## Jarvis 1.12.0: your own voices
+## Jarvis 1.13.0: animated scene theme
 
-- **Your voices:** Jarvis can now speak with voice files you keep on your PC. They show up at the top of Settings → Voice under "Your voices".
-- **Open voices folder:** a new button in Settings → Voice opens the folder. Drop a voice file in and restart Jarvis.
-- **Built-in pitch:** a voice can carry its own pitch, so it sounds right without touching the slider. The slider still works on top of it.
-- Your voice files stay on your PC and are never uploaded with Jarvis updates.
+- **New theme: Animated scene.** In Settings → Theme, choose "Animated scene", then press **Load scene…** and pick a `.jarvisscene` file or any picture of your own.
+- **The camera follows your mouse.** Closer layers move more than far ones for real depth, and characters drift gently on their own.
+- **Glass panels:** the panels are frosted glass in warm cream, gold and teal so they blend with the picture. Market and Operator are hidden in this theme.
+- **Voice wave:** a slim wave replaces the orb so the middle of the picture stays clear. It moves when Jarvis talks or listens.
+- **Camera motion slider** in Settings, from off to strong.
+- The scene pauses during games, when Jarvis is hidden, or while the To-Do is open. Your scene stays on your PC and is included in update backups.
