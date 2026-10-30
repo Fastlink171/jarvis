@@ -48,7 +48,7 @@ const S = {
   screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
   pending:null, history:[], run:0, chatId:null,
   confirm:store.get('confirm', true), autoSafe:store.get('autoSafe', true),
-  voice:store.get('voice', 'bm_george'), rate:store.get('rate', 1), ear:store.get('ear', 'whisper-base.en'), sens:store.get('sens', 0.5),
+  voice:store.get('voice', 'bm_george'), rate:store.get('rate', 1), kpitch:store.get('kpitch', 1), mixVoice:store.get('mixVoice', ''), mixAmt:store.get('mixAmt', 0), ear:store.get('ear', 'whisper-base.en'), sens:store.get('sens', 0.5),
   memories:store.get('memories', []), tasks:store.get('tasks', []), timers:store.get('timers', []),
   counts:store.get('counts', { total:0, cmds:0, days:{} }), session:0,
   city:store.get('city', null), celsius:store.get('celsius', false), weather:null,
@@ -112,7 +112,7 @@ function renderCounters(){
 }
 
 /* ============================================================ voice wrappers */
-function voiceOpts(){ return { engine: V && V.voiceReady ? 'kokoro' : 'windows', voice: S.voice, speed: S.rate, rate: S.rate, pitch: 0.9 }; }
+function voiceOpts(){ return { engine: V && V.voiceReady ? 'kokoro' : 'windows', voice: S.voice, speed: S.rate, rate: S.rate, pitch: 0.9, kpitch: S.kpitch, blend: S.mixVoice && S.mixAmt > 0 ? { voice: S.mixVoice, amount: S.mixAmt } : null }; }
 function speak(text){
   if (!text || !V) return Promise.resolve();
   if (S.wake) S.awaitingUntil = 0;
@@ -1129,7 +1129,7 @@ async function loadVoiceModels(fromSetup){
       .catch(e => { V.hearingLoading = false; tb('#tbEar', 'FAILED', 'off'); event('hearing failed: ' + e.message); throw e; }));
   }
   const voiceTask = () => V.loadVoice(fromSetup ? progressTracker('#voiceProg i', '#voiceTxt', 'Voice') : null)
-    .then(() => { tb('#tbVoice', S.voice.replace(/^[ab]m_/, '').toUpperCase(), 'on'); fillVoiceSelect(); event('voice ready'); V.prepare(ACKS, voiceOpts()); })
+    .then(() => { fillVoiceSelect(); event('voice ready'); V.prepare(ACKS, voiceOpts()); })
     .catch(e => { tb('#tbVoice', 'WINDOWS', 'warn'); event('neural voice failed, using Windows voice: ' + e.message); throw e; });
   if (!V.voiceReady) { tb('#tbVoice', 'LOADING', 'warn'); }
   try {
@@ -1141,21 +1141,39 @@ async function loadVoiceModels(fromSetup){
     if (fromSetup) $('#voiceTxt').textContent = 'Download failed: ' + e.message + '. Check your internet connection and try again.';
   }
 }
+const VOICE_NOTES = { af_heart:'warm, natural', af_bella:'bright, upbeat', af_nicole:'soft, close', af_sky:'light, airy', af_nova:'clear', af_sarah:'friendly', af_alloy:'even', af_aoede:'gentle', af_jessica:'casual', af_kore:'calm', af_river:'relaxed',
+  bf_emma:'calm', bf_isabella:'smooth', bf_alice:'crisp', bf_lily:'gentle', bm_george:'the Jarvis voice', bm_lewis:'warm', bm_daniel:'steady', bm_fable:'storyteller', am_michael:'friendly', am_adam:'deep', am_eric:'clear', am_liam:'young', am_onyx:'very deep', am_echo:'soft', am_puck:'playful', am_fenrir:'bold', am_santa:'jolly' };
+function voiceLabel(id){
+  const lang = { a:'American', b:'British', e:'Spanish', f:'French', h:'Hindi', i:'Italian', j:'Japanese', p:'Portuguese', z:'Chinese' };
+  const nm = (id.split('_')[1] || id); return nm[0].toUpperCase() + nm.slice(1) + ' — ' + (lang[id[0]] || '') + (VOICE_NOTES[id] ? ', ' + VOICE_NOTES[id] : '');
+}
+function voiceGroups(){
+  const all = V && V.voiceReady && V.listVoices(true).length > 12 ? V.listVoices(true).map(v => v.id) : Object.keys(VOICE_NOTES).concat(['af_aoede']);
+  const en = [...new Set(all)].filter(id => /^[ab][fm]_/.test(id));      // English voices sound right with English text
+  const order = id => (VOICE_NOTES[id] ? 0 : 1);
+  const pick = re => en.filter(id => re.test(id)).sort((x, y) => order(x) - order(y) || x.localeCompare(y));
+  return [['Female — American', pick(/^af_/)], ['Female — British', pick(/^bf_/)], ['Male — British', pick(/^bm_/)], ['Male — American', pick(/^am_/)]].filter(g => g[1].length);
+}
 function fillVoiceSelect(){
-  const sel = $('#voiceSel'); sel.innerHTML = '';
-  const list = V && V.voiceReady ? V.listVoices() : [];
-  const nice = { bm_george:'George — British (Jarvis)', bm_lewis:'Lewis — British', bm_daniel:'Daniel — British', bm_fable:'Fable — British', am_michael:'Michael — American', am_adam:'Adam — American', am_eric:'Eric — American', am_liam:'Liam — American', am_onyx:'Onyx — American, deep', am_echo:'Echo — American', am_puck:'Puck — American', am_fenrir:'Fenrir — American' };
-  const males = list.length ? list : (V ? V.MALE_VOICES.map(id => ({ id })) : []);
-  const g1 = document.createElement('optgroup'); g1.label = 'Male voices'; sel.appendChild(g1);
-  males.forEach(v => { const o = document.createElement('option'); o.value = v.id; o.textContent = nice[v.id] || v.id; g1.appendChild(o); });
-  const others = V && V.voiceReady ? V.listVoices(true).filter(v => !males.some(m => m.id === v.id)) : [];
-  if (others.length) {
-    const lang = { a: 'American', b: 'British', e: 'Spanish', f: 'French', h: 'Hindi', i: 'Italian', j: 'Japanese', p: 'Portuguese', z: 'Chinese' };
-    const g2 = document.createElement('optgroup'); g2.label = 'Other voices'; sel.appendChild(g2);
-    others.forEach(v => { const o = document.createElement('option'); o.value = v.id; const nm = v.id.split('_')[1] || v.id; o.textContent = nm[0].toUpperCase() + nm.slice(1) + ' — ' + (lang[v.id[0]] || v.id.slice(0, 2)) + (/^.f_/.test(v.id) ? ', female' : ''); g2.appendChild(o); });
-  }
+  const fill = (sel, withNone) => {
+    sel.innerHTML = '';
+    if (withNone) { const o = document.createElement('option'); o.value = ''; o.textContent = '— nothing (no mix) —'; sel.appendChild(o); }
+    for (const [label, ids] of voiceGroups()) { const g = document.createElement('optgroup'); g.label = label; ids.forEach(id => { const o = document.createElement('option'); o.value = id; o.textContent = voiceLabel(id); g.appendChild(o); }); sel.appendChild(g); }
+  };
+  const sel = $('#voiceSel'); fill(sel, false);
   const w = document.createElement('option'); w.value = 'windows'; w.textContent = 'Windows built-in voice (David)'; sel.appendChild(w);
   sel.value = V && V.voiceReady ? S.voice : 'windows';
+  const mx = $('#mixSel'); fill(mx, true); mx.value = S.mixVoice || '';
+  syncVoiceUi();
+}
+function syncVoiceUi(){
+  const kok = !!(V && V.voiceReady) && $('#voiceSel').value !== 'windows';
+  $('#mixRow').style.opacity = $('#pitchRow').style.opacity = kok ? 1 : .45;
+  $('#mixAmt').disabled = !S.mixVoice; $('#mixAmt').value = S.mixAmt;
+  $('#mixV').textContent = S.mixVoice && S.mixAmt > 0 ? Math.round(S.mixAmt * 100) + '% ' + (S.mixVoice.split('_')[1] || '').toUpperCase() : 'OFF';
+  $('#kpitch').value = S.kpitch; $('#pitchV').textContent = (S.kpitch >= 1 ? '+' : '') + Math.round((S.kpitch - 1) * 100) + '%';
+  const nm = (S.voice.split('_')[1] || S.voice).toUpperCase();
+  if (V && V.voiceReady) tb('#tbVoice', S.mixVoice && S.mixAmt > 0 ? 'MIX' : nm, 'on');
 }
 
 /* ============================================================ scene + orb (shared with the HTML version) */
@@ -1265,7 +1283,12 @@ function wire(){
   $('#moreModels').onclick = () => { $('#modal').classList.remove('show'); runSetup(true).then(watchSetup); };
   $('#rerunSetup').onclick = $('#moreModels').onclick;
   $('#deep').checked = S.deep; $('#deep').onchange = e => { S.deep = e.target.checked; store.set('deep', S.deep); };
-  $('#voiceSel').onchange = e => { if (e.target.value !== 'windows') { S.voice = e.target.value; store.set('voice', S.voice); tb('#tbVoice', S.voice.replace(/^[ab]m_/, '').toUpperCase(), 'on'); } else { if (V) V.voiceReady = false; tb('#tbVoice', 'WINDOWS', 'warn'); } };
+  $('#voiceSel').onchange = e => { if (e.target.value !== 'windows') { S.voice = e.target.value; store.set('voice', S.voice); syncVoiceUi(); } else { if (V) V.voiceReady = false; tb('#tbVoice', 'WINDOWS', 'warn'); syncVoiceUi(); } };
+  $('#mixSel').onchange = e => { S.mixVoice = e.target.value; store.set('mixVoice', S.mixVoice); if (S.mixVoice && !S.mixAmt) { S.mixAmt = .4; store.set('mixAmt', S.mixAmt); } syncVoiceUi(); };
+  $('#mixAmt').oninput = e => { S.mixAmt = +e.target.value; store.set('mixAmt', S.mixAmt); syncVoiceUi(); };
+  $('#kpitch').oninput = e => { S.kpitch = +e.target.value; store.set('kpitch', S.kpitch); syncVoiceUi(); };
+  $('#voicePrev').onclick = () => { stopVoice(); speak(pick(['Hello. This is how I sound now.', 'Ready when you are. What are we doing today?', 'All systems online. How do I sound?'])); };
+  $('#voiceReset').onclick = () => { Object.assign(S, { voice:'bm_george', mixVoice:'', mixAmt:0, kpitch:1, rate:1 }); ['voice','mixVoice','mixAmt','kpitch','rate'].forEach(k => store.set(k, S[k])); $('#rate').value = 1; $('#rateV').textContent = '1.00'; fillVoiceSelect(); };
   $('#rate').value = S.rate; const showR = () => $('#rateV').textContent = (+S.rate).toFixed(2); showR();
   $('#rate').oninput = e => { S.rate = +e.target.value; store.set('rate', S.rate); showR(); };
   $('#testVoice').onclick = () => { stopVoice(); speak(`${greeting()}, sir. All systems are online and at your disposal.`); };

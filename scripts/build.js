@@ -38,3 +38,10 @@ console.log('renderer built');
   fs.writeFileSync(R('dist-web/todo.html'), page);
 }
 console.log('to-do built');
+
+// English Kokoro voices ship with Jarvis, so mixing voices works offline and instantly
+{
+  const vs = R('node_modules/kokoro-js/voices'), vd = R('app/renderer/voices');
+  fs.mkdirSync(vd, { recursive: true });
+  for (const f of fs.readdirSync(vs)) if (/^[ab][fm]_.*\.bin$/.test(f)) fs.copyFileSync(path.join(vs, f), path.join(vd, f));
+}

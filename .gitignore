@@ -10,3 +10,4 @@ app/renderer/ort/
 app/renderer/todo.html
 app/renderer/todo-core.js
 dist-web/
+app/renderer/voices/

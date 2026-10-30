@@ -251,20 +251,24 @@ async function runQueue() {
 }
 const synthCache = new Map();
 function synth(item) {
-  const key = (item.opts.voice || 'bm_george') + '|' + (item.opts.speed || 1) + '|' + item.text;
-  if (synthCache.has(key)) { const c = synthCache.get(key); return Promise.resolve({ samples: c.samples.slice(), rate: c.rate }); }
-  return mouth('synth', { text: item.text, voice: item.opts.voice || 'bm_george', speed: item.opts.speed || 1 }).then(a => {
+  // pitch is applied when playing (faster playback = higher), so render slower by the same amount to keep the pace
+  const pitch = Math.max(.8, Math.min(1.25, +item.opts.kpitch || 1)), speed = (item.opts.speed || 1) / pitch;
+  const blend = item.opts.blend && item.opts.blend.voice && item.opts.blend.amount > 0 ? item.opts.blend : null;
+  const key = (item.opts.voice || 'bm_george') + '|' + speed + '|' + (blend ? blend.voice + ':' + blend.amount : '') + '|' + item.text;
+  if (synthCache.has(key)) { const c = synthCache.get(key); return Promise.resolve({ samples: c.samples.slice(), rate: c.rate, pitch }); }
+  return mouth('synth', { text: item.text, voice: item.opts.voice || 'bm_george', speed, blend }).then(a => {
+    a.pitch = pitch;
     if (item.text.length <= 24) { synthCache.set(key, { samples: a.samples.slice(), rate: a.rate }); if (synthCache.size > 40) synthCache.delete(synthCache.keys().next().value); }
     return a;
   });
 }
 function prepare(texts, opts = {}) { return Promise.all(texts.map(text => synth({ text, opts }).catch(() => null))); }
-function play({ samples, rate }) {
+function play({ samples, rate, pitch }) {
   return new Promise(res => {
     if (!playCtx) playCtx = new AudioContext();
     const buf = playCtx.createBuffer(1, samples.length, rate);
     buf.copyToChannel(samples, 0);
-    const src = playCtx.createBufferSource(); src.buffer = buf;
+    const src = playCtx.createBufferSource(); src.buffer = buf; if (pitch && pitch !== 1) src.playbackRate.value = pitch;
     const an = playCtx.createAnalyser(); an.fftSize = 256; const data = new Uint8Array(an.frequencyBinCount);
     src.connect(an); an.connect(playCtx.destination);
     playing = src;

@@ -214,8 +214,13 @@
       <p class="note" id="modelInfo" style="margin-top:6px"></p></div>
     <div class="field"><label class="chk"><input type="checkbox" id="deep"> DEEP THINKING — smarter on hard questions, slower replies</label></div>
 
-    <div class="field"><label>VOICE</label><select id="voiceSel"></select></div>
+    <div class="field"><label>VOICE</label><div class="mini" style="margin-top:0"><select id="voiceSel" style="flex:1"></select><button class="chipbtn" id="voicePrev">▶ PREVIEW</button></div></div>
+    <div class="field" id="mixRow"><label>MIX WITH <span id="mixV"></span></label><select id="mixSel"></select>
+      <input type="range" id="mixAmt" min="0" max="0.9" step="0.05" style="margin-top:6px">
+      <p class="note" style="margin-top:4px">Blend two voices into a new one that's only yours. 0% = just the voice above.</p></div>
     <div class="field"><label>SPEED <span id="rateV"></span></label><input type="range" id="rate" min="0.7" max="1.4" step="0.05"></div>
+    <div class="field" id="pitchRow"><label>PITCH <span id="pitchV"></span></label><input type="range" id="kpitch" min="0.85" max="1.2" step="0.01"></div>
+    <div class="field"><button class="chipbtn" id="voiceReset">RESET VOICE TO GEORGE</button></div>
     <div class="field"><button class="btn" id="testVoice">TEST VOICE</button></div>
 
     <div class="field"><label>HEARING ACCURACY</label><select id="earSel">
