@@ -115,6 +115,7 @@ function renderCounters(){
 function voiceOpts(){ return { engine: S.ttsEngine === 'custom' ? 'custom' : V && V.voiceReady ? 'kokoro' : 'windows', customUrl: S.customUrl, voice: S.voice, speed: S.rate, rate: S.rate, pitch: 0.9, kpitch: S.kpitch, basePitch: (myVoices.find(v => v.id === S.voice) || {}).pitch || 1, blend: S.mixVoice && S.mixAmt > 0 ? { voice: S.mixVoice, amount: S.mixAmt } : null }; }
 function speak(text){
   if (!text || !V) return Promise.resolve();
+  text = renameText(String(text));
   if (S.wake) S.awaitingUntil = 0;
   return V.speak(text, voiceOpts()).then(() => { if (S.wake) S.awaitingUntil = Date.now() + 8000; });
 }
@@ -145,7 +146,7 @@ async function talk(){
 }
 const JARVIS_WAKE = /^(?:(?:hey|hi|ok|okay|yo|a)[\s,]+)?(?:jarvis|jervis|jarvus|jarvas|jarv|service)\b[\s,.!?]*|^(?:hey|hi)[\s,.!?]*$/i;
 /* The assistant's name is a setting. "Jarvis" uses the trained "Hey Jarvis" detector; any other name is caught by speech recognition. */
-const aiName = () => (String(store.get('aiName', 'Jarvis') || '').trim() || 'Jarvis');
+const aiName = () => (String(store.get('aiName', 'Miku') || '').trim() || 'Miku');
 const isJarvis = () => /^jarvis$/i.test(aiName());
 function nameRe(name){
   // forgiving spelling: any vowels for vowels, doubled letters, k/c/q alike — "Miku" also matches "Meeku", "Mikku"
@@ -155,6 +156,27 @@ function nameRe(name){
 let WAKE = JARVIS_WAKE;
 function buildWake(){ WAKE = isJarvis() ? JARVIS_WAKE : new RegExp(`^(?:(?:hey|hi|ok|okay|yo|a)[\\s,]+)?(?:${nameRe(aiName())})\\b[\\s,.!?]*|^(?:hey|hi)[\\s,.!?]*$`, 'i'); }
 buildWake();
+const RENAME_SKIP = /^(PRE|CODE|TEXTAREA|INPUT|SCRIPT|STYLE|SELECT|OPTION)$/;
+function renameText(str){
+  const n = aiName(); if (isJarvis()) return str;
+  const logo = n.toUpperCase().replace(/[^A-Z0-9]/g, '').split('').join('.');
+  str = str.replace(/,? sir([.?!,])/g, '$1').replace(/^Sir\?$/, 'Yes?').replace(/\bVery good\b/g, 'Okay').replace(/\bAt your service\b/g, 'I\'m here');
+  return str.replace(/J\.A\.R\.V\.I\.S\.?/g, logo).replace(/\bJARVIS\b/g, n.toUpperCase()).replace(/\bJarvis\b/g, n).replace(/\bjarvis\b(?![\\/.:-])/g, n.toLowerCase())
+            .replace(/\b(He|he)(’s| is| was|'s)\b(?= (in the system tray|still|ready|listening))/g, (m, a, b) => (a === 'He' ? 'She' : 'she') + b);
+}
+function renameTree(root){
+  if (!root || isJarvis()) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, { acceptNode: nd => nd.nodeType === 1 ? (RENAME_SKIP.test(nd.tagName) || nd.closest?.('[data-raw],.term,#conOut') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP) : NodeFilter.FILTER_ACCEPT });
+  for (let nd; (nd = w.nextNode());) { if (/jarvis|J\.A\.R/i.test(nd.nodeValue)) { const v = renameText(nd.nodeValue); if (v !== nd.nodeValue) nd.nodeValue = v; } }
+  (root.querySelectorAll ? root.querySelectorAll('[title],[placeholder],[aria-label]') : []).forEach(el => { for (const a of ['title', 'placeholder', 'aria-label']) { const v = el.getAttribute(a); if (v && /jarvis/i.test(v)) el.setAttribute(a, renameText(v)); } });
+}
+let renameObs = null;
+function watchRename(doc){
+  renameTree(doc.body);
+  const mo = new MutationObserver(list => { if (isJarvis()) return; for (const m of list) { if (m.type === 'characterData') { const v = m.target.nodeValue; if (/jarvis|J\.A\.R/i.test(v) && !m.target.parentElement?.closest('[data-raw],.term,#conOut,pre,code')) m.target.nodeValue = renameText(v); } else m.addedNodes.forEach(nd => nd.nodeType === 3 ? (/jarvis/i.test(nd.nodeValue) && (nd.nodeValue = renameText(nd.nodeValue))) : nd.nodeType === 1 && renameTree(nd)); } });
+  mo.observe(doc.body, { childList: true, subtree: true, characterData: true });
+  return mo;
+}
 function applyName(){
   const n = aiName(), up = n.toUpperCase();
   const logo = isJarvis() ? 'J.A.R.V.I.S' : up.replace(/[^A-Z0-9]/g, '').split('').join('.');
@@ -165,6 +187,9 @@ function applyName(){
   const wp = document.getElementById('wakePill'); if (wp) { wp.childNodes.forEach(c => { if (c.nodeType === 3 && /HEY/.test(c.textContent)) c.textContent = 'HEY ' + up + ' '; }); wp.title = `Listen for “Hey ${n}” all the time (even in games). Everything stays on this PC.`; }
   const ni = document.getElementById('nameIn'); if (ni) ni.placeholder = `What should ${n} call you?`;
   J.setPrefs({ aiName: n });
+  if (!renameObs) { renameObs = watchRename(document); const fr = document.getElementById('todoFrame'); if (fr) fr.addEventListener('load', () => { try { watchRename(fr.contentDocument); } catch {} }); }
+  else renameTree(document.body);
+  try { renameTree(document.getElementById('todoFrame').contentDocument.body); } catch {}
 }
 const YES = /^(yes|yeah|yep|do it|go ahead|proceed|confirm|run it|affirmative|sure|ok|okay|execute|please do)\b/i;
 const NO  = /^(no|nope|cancel|stop|abort|negative|don'?t|never mind|nevermind)\b/i;
@@ -248,7 +273,7 @@ function renderMem(){
 /* ---- To-Do: Jarvis keeps the tasks (file on the PC); the To-Do screen and the AI share them */
 const TC = window.TodoCore;
 const TODO = {
-  tasks: {}, subs: new Set(), saveT: 0,
+  tasks: {}, subs: new Set(), saveT: 0, name: () => aiName(),
   all() { return JSON.parse(JSON.stringify(this.tasks)); },
   list() { return Object.values(this.tasks); },
   put(t) { this.tasks[t.id] = { ...t, kind: 'task' }; this.changed(); },
@@ -470,6 +495,23 @@ const SAFE_START = /^\s*(Get-|Test-Path|Test-Connection|Resolve-DnsName|Measure-
 const UNSAFE = /(Remove-|Set-(?!Location)|Stop-|Restart-|New-|Move-|Copy-|Rename-|Clear-|Disable-|Enable-|Install-|Uninstall-|Invoke-Expression|\biex\b|Invoke-WebRequest|\biwr\b|Invoke-RestMethod|\birm\b|Start-Process|Out-File|Add-Content|>\s*\S|\bdel\b|\brm\b|\bformat\b|shutdown|reg (add|delete)|bcdedit|diskpart|takeown|icacls|-Force|Start-BitsTransfer|schtasks|netsh|sc\.exe)/i;
 const isSafe = cmd => cmd.split(/[;\n|]/).every(seg => !seg.trim() || SAFE_START.test(seg.trim()) || /^\s*(Select|Where|Sort|Format|Measure|ConvertTo|Out-String|ForEach-Object\s*\{\s*\$_\.\w+\s*\})/i.test(seg.trim())) && !UNSAFE.test(cmd);
 
+// what the update system knows right now, in plain words (asks GitHub first)
+async function updateReport(){
+  let st = await J.update.state();
+  const cur = S.info.version || '';
+  if (st.state === 'dev') return `Updates only work in the installed app (this is version ${cur}).`;
+  if (!/downloading|ready/.test(st.state)) {
+    await J.update.check().catch(() => {});
+    for (let i = 0; i < 24; i++) { await sleep(500); st = await J.update.state(); if (!/checking|idle/.test(st.state)) break; }
+  }
+  switch (st.state) {
+    case 'latest': return `Up to date: version ${cur} is the newest.`;
+    case 'downloading': return `Version ${st.version} is downloading (${Math.round(st.percent || 0)}%). It installs next time the app closes, or say "update now" once it's ready.`;
+    case 'ready': return `Version ${st.version} has downloaded and is ready to install (you have ${cur}). What's new: ${String(st.notes || 'no notes').replace(/\s+/g, ' ').slice(0, 600)}. Say "update now" to restart and install it.`;
+    case 'error': return `Couldn't check for updates: ${st.error || 'unknown problem'}.`;
+    default: return `Still checking for updates (you have ${cur}).`;
+  }
+}
 function confirmAction(say, detail){
   if (S.pending) S.pending.answer(false, true);
   return new Promise(resolve => {
@@ -514,7 +556,9 @@ const TOOLS = [
   { name:'complete_task', description:'Mark a To-Do task as done.', params:{ text:{ type:'string', description:'the task (or part of its name)' } }, required:['text'] },
   { name:'reschedule_task', description:'Move a To-Do task to a new day/time.', params:{ text:{ type:'string', description:'the task (or part of its name)' }, when:{ type:'string', description:'new time in plain words, e.g. "monday 9am"' } }, required:['text', 'when'] },
   { name:'open_todo', description:'Show the To-Do planner (calendar and list) on screen.', params:{}, required:[] },
-  { name:'set_timer', description:'Start a timer, or a reminder when a label is given. Jarvis will speak up when it ends.', params:{ minutes:{ type:'number' }, label:{ type:'string', description:'what to remind about (optional)' } }, required:['minutes'] },
+  { name:'check_for_updates', description:'Check whether a newer version of this assistant app is available, and report the current version, the new version and what it changes.', params:{}, required:[] },
+  { name:'install_update', description:'Restart the app to install an update that has finished downloading. Only when the user asks to update now.', params:{}, required:[] },
+  { name:'set_timer', description:'Start a timer, or a reminder when a label is given. you will speak up when it ends.', params:{ minutes:{ type:'number' }, label:{ type:'string', description:'what to remind about (optional)' } }, required:['minutes'] },
   { name:'get_weather', description:'Current weather and 3-day forecast. Leave city empty for the user\'s saved location.', params:{ city:{ type:'string' } }, required:[] },
   { name:'system_status', description:'CPU, memory, disk, uptime and top processes of this PC.', params:{}, required:[] },
   { name:'media_control', description:'Control a specific media player (Spotify, a show in Chrome, YouTube, VLC…) or the system volume. Actions: play, pause, next, previous, stop, volume_up, volume_down, mute, unmute, set_volume. Set app to the player to control ("spotify", "chrome", "youtube", or "music" / "video"); leave it empty to let Jarvis choose (pause = everything playing, play = whatever was paused last, preferring music).', params:{ action:{ type:'string', enum:['play', 'pause', 'next', 'previous', 'stop', 'volume_up', 'volume_down', 'mute', 'unmute', 'set_volume'] }, app:{ type:'string', description:'which player' }, level:{ type:'number', description:'0-100, for set_volume' } }, required:['action'] },
@@ -601,6 +645,13 @@ async function runTool(name, args){
         toolLine('↻', `Moved: ${t.title} → ${todoWhen(nt)}`); return `Moved "${t.title}" to ${todoWhen(nt)}.`;
       }
       case 'open_todo': openTodo(); return 'The To-Do planner is open on screen.';
+      case 'check_for_updates': { toolLine('⟳', 'Checking for updates'); return await updateReport(); }
+      case 'install_update': {
+        const st = await J.update.state();
+        if (st.state !== 'ready') return 'No update is ready to install. ' + await updateReport();
+        if (!await confirmAction(`Version ${st.version} is ready. I'll restart to install it; your data is backed up first.`, 'Restart and install ' + st.version)) return 'The user cancelled the update.';
+        setTimeout(() => J.update.install(), 2500); return `Restarting in a moment to install ${st.version}.`;
+      }
       case 'complete_task': {
         const t = todoFind(args.text); if (!t) return 'No matching open task.';
         TODO.put({ ...t, done: true, doneAt: Date.now() }); toolLine('☑', 'Done: ' + t.title); return 'Marked done: ' + t.title;
@@ -953,6 +1004,8 @@ async function handle(text){
     const target = APPS[name] || SITES[name];
     if (target) { J.open(target); countAction(); return reply(pick(['Opening ' + name + '.', 'Right away.', 'On it.'])); }
   }
+  if (/^(?:are there |is there |any |check (?:for )?|look for |got any )(?:any )?(?:new )?(?:updates?|new versions?)(?: available| for you| out)?\??$|^(?:can|could) you (?:check for |get )?(?:any )?updates?\??$|^(?:do you|does the app) (?:have|need) (?:an |any )?updates?\??$/.test(t)) { addMsg('sys', 'Checking for updates…'); return updateReport().then(r => reply(r)); }
+  if (/^(?:update|install the update|restart and update|update yourself)(?: now)?(?: please)?$/.test(t)) return runTool('install_update', {}).then(r => { if (!/Restarting|cancelled/.test(r)) reply(r); });
   if (/^(stop listening|go to sleep|goodbye|that'?s all)$/.test(t)) { setWake(false); return reply('Very good, sir. I’ll be here.'); }
   if (/^(?:open|show|bring up|pull up)(?: me)? (?:my |the )?(?:to-?do(?: list)?|todo|tasks|planner|calendar|schedule)$/.test(t)) { openTodo(); return reply(pick(['Here’s your planner, sir.', 'Your To-Do, sir.', 'Opening your planner.'])); }
   if (/^(?:close|hide) (?:my |the )?(?:to-?do(?: list)?|todo|tasks|planner|calendar)$/.test(t)) { closeTodo(); return; }
@@ -1174,7 +1227,7 @@ async function loadVoiceModels(fromSetup){
   }
 }
 const VOICE_NOTES = { af_heart:'warm, natural', af_bella:'bright, upbeat', af_nicole:'soft, close', af_sky:'light, airy', af_nova:'clear', af_sarah:'friendly', af_alloy:'even', af_aoede:'gentle', af_jessica:'casual', af_kore:'calm', af_river:'relaxed',
-  bf_emma:'calm', bf_isabella:'smooth', bf_alice:'crisp', bf_lily:'gentle', bm_george:'the Jarvis voice', bm_lewis:'warm', bm_daniel:'steady', bm_fable:'storyteller', am_michael:'friendly', am_adam:'deep', am_eric:'clear', am_liam:'young', am_onyx:'very deep', am_echo:'soft', am_puck:'playful', am_fenrir:'bold', am_santa:'jolly' };
+  bf_emma:'calm', bf_isabella:'smooth', bf_alice:'crisp', bf_lily:'gentle', bm_george:'the original voice', bm_lewis:'warm', bm_daniel:'steady', bm_fable:'storyteller', am_michael:'friendly', am_adam:'deep', am_eric:'clear', am_liam:'young', am_onyx:'very deep', am_echo:'soft', am_puck:'playful', am_fenrir:'bold', am_santa:'jolly' };
 let myVoices = [];   // the user's own voices from %APPDATA%\Jarvis\voices
 function voiceLabel(id){
   const mine = myVoices.find(v => v.id === id); if (mine) return mine.label + ' — your voice';
@@ -1393,9 +1446,13 @@ function wire(){
   // settings
   $('#closeModal').onclick = () => $('#modal').classList.remove('show');
   $('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').classList.remove('show'); };
+  const showIcon = url => { $('#appIconTh').style.backgroundImage = url ? `url('${url}')` : ''; $('#appIconState').textContent = url ? 'YOUR PICTURE' : 'DEFAULT'; };
+  J.appIcon.get().then(showIcon);
+  $('#appIconPick').onclick = async () => { const r = await J.appIcon.pick(); if (r && r.ok) { showIcon(r.url); event('app icon changed'); } else if (r && r.error) $('#appIconState').textContent = r.error.toUpperCase(); };
+  $('#appIconClear').onclick = async () => { await J.appIcon.clear(); showIcon(null); };
   $('#aiNameIn').value = aiName();
   $('#aiNameIn').onchange = e => {
-    const n = String(e.target.value || '').replace(/[^\p{L}\p{N} '\-]/gu, '').trim().slice(0, 24) || 'Jarvis';
+    const n = String(e.target.value || '').replace(/[^\p{L}\p{N} '\-]/gu, '').trim().slice(0, 24) || 'Miku';
     store.set('aiName', n); e.target.value = n; buildWake(); applyName(); setState();
     if (S.wake) setWake(true);
     event('assistant name: ' + n);

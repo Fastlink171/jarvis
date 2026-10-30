@@ -1,4 +1,4 @@
-name: Build and release Jarvis
+name: Build and release M.I.K.U
 
 # Runs on every push to main. If package.json has a version whose release is
 # missing (or incomplete), it builds the Windows installer on GitHub's Windows
@@ -76,10 +76,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER=${{ steps.ver.outputs.version }}
-          FILES="dist/Jarvis-Setup-$VER.exe dist/Jarvis-Setup-$VER.exe.blockmap dist/latest.yml"
+          FILES="dist/MIKU-Setup-$VER.exe dist/MIKU-Setup-$VER.exe.blockmap dist/latest.yml"
           if gh release view "v$VER" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "v$VER" $FILES --clobber -R "$GITHUB_REPOSITORY"
             gh release edit "v$VER" --notes-file build/release-notes.md --draft=false --latest -R "$GITHUB_REPOSITORY"
           else
-            gh release create "v$VER" $FILES --title "Jarvis $VER" --notes-file build/release-notes.md --target "$GITHUB_SHA" --latest -R "$GITHUB_REPOSITORY"
+            gh release create "v$VER" $FILES --title "M.I.K.U $VER" --notes-file build/release-notes.md --target "$GITHUB_SHA" --latest -R "$GITHUB_REPOSITORY"
           fi

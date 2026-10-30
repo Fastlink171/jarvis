@@ -16,6 +16,8 @@ const ROOT = path.join(__dirname, 'renderer');
 const ICON = path.join(__dirname, 'icon.png');
 const IS_WIN = process.platform === 'win32';
 
+// Your data stays in %APPDATA%\Jarvis whatever the app is called, so renaming it never loses anything.
+app.setPath('userData', path.join(app.getPath('appData'), 'Jarvis'));
 app.setAppUserModelId('local.jarvis.assistant');
 app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 app.commandLine.appendSwitch('enable-unsafe-webgpu');
@@ -40,7 +42,7 @@ const MIME = { '.gif': 'image/gif', '.webp': 'image/webp', '.jpg': 'image/jpeg',
 function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 980, minHeight: 640, show: false,
-    title: prefs.aiName || 'Jarvis', icon: ICON, backgroundColor: '#07111f',
+    title: prefs.aiName || 'Miku', icon: ICON, backgroundColor: '#07111f',
     titleBarStyle: 'hidden',
     titleBarOverlay: IS_WIN ? { color: '#08121f', symbolColor: '#cfe9f7', height: 32 } : undefined,
     autoHideMenuBar: true,
@@ -57,7 +59,7 @@ function createWindow() {
       e.preventDefault(); win.hide();
       if (!prefs.toldTray) {
         prefs.toldTray = true; savePrefs();
-        try { new Notification({ title: 'Jarvis is still running', body: 'He’s in the system tray. Say “Jarvis” (with wake word on) or press Ctrl+Shift+J. Right-click the tray icon to quit.', icon: ICON }).show(); } catch {}
+        try { const nm = prefs.aiName || 'Miku'; new Notification({ title: nm + ' is still running', body: `In the system tray. Say “Hey ${nm}” (with the wake word on) or press Ctrl+Shift+J. Right-click the tray icon to quit.`, icon: ICON }).show(); } catch {}
       }
     }
   });
@@ -70,19 +72,19 @@ function showWindow() { if (!win) return; if (win.isMinimized()) win.restore(); 
 function trayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Show ' + (prefs.aiName || 'Jarvis'), click: showWindow },
-    { label: 'Talk to ' + (prefs.aiName || 'Jarvis') + '   (Ctrl+Shift+J)', click: () => win.webContents.send('hotkey:talk') },
-    { label: 'Listen for “Hey ' + (prefs.aiName || 'Jarvis') + '”', type: 'checkbox', checked: wakeOn, click: m => win.webContents.send('tray:wake', m.checked) },
+    { label: 'Show ' + (prefs.aiName || 'Miku'), click: showWindow },
+    { label: 'Talk to ' + (prefs.aiName || 'Miku') + '   (Ctrl+Shift+J)', click: () => win.webContents.send('hotkey:talk') },
+    { label: 'Listen for “Hey ' + (prefs.aiName || 'Miku') + '”', type: 'checkbox', checked: wakeOn, click: m => win.webContents.send('tray:wake', m.checked) },
     { type: 'separator' },
-    { label: 'Quit ' + (prefs.aiName || 'Jarvis'), click: () => { quitting = true; app.quit(); } }
+    { label: 'Quit ' + (prefs.aiName || 'Miku'), click: () => { quitting = true; app.quit(); } }
   ]));
-  tray.setToolTip(wakeOn ? `${prefs.aiName || 'Jarvis'} — listening for “Hey ${prefs.aiName || 'Jarvis'}”` : (prefs.aiName || 'Jarvis'));
+  tray.setToolTip(wakeOn ? `${prefs.aiName || 'Miku'} — listening for “Hey ${prefs.aiName || 'Miku'}”` : (prefs.aiName || 'Miku'));
 }
 
 function setupTray() {
   if (tray) return;
   try {
-    tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
+    tray = new Tray(prefs.appIcon ? squareIcon(appIconImage(), 32) : nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
     trayMenu();
     tray.on('click', showWindow);
   } catch {}
@@ -147,7 +149,7 @@ function setupUpdater() {
   });
   autoUpdater.on('error', e => {
     let msg = String(e && e.message || e).split('\n')[0].slice(0, 200);
-    if (/\b(404|401|403)\b|not found|authentication|Bad credentials/i.test(msg)) msg = getToken() ? 'GitHub refused the update key. Paste a new key in Settings → Updates.' : 'The Jarvis repository is private. Paste your GitHub update key in Settings → Updates.';
+    if (/\b(404|401|403)\b|not found|authentication|Bad credentials/i.test(msg)) msg = getToken() ? 'GitHub refused the update key. Paste a new key in Settings → Updates.' : 'The app’s repository is private. Paste your GitHub update key in Settings → Updates.';
     setUpdate({ state: 'error', error: msg });
   });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
@@ -194,6 +196,13 @@ function cleanupOldInstall() {
   if (!IS_WIN || !app.isPackaged) return;
   try { spawn('reg', ['delete', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Jarvis', '/f'], { windowsHide: true, stdio: 'ignore' }); } catch {}
   try { fs.unlinkSync(path.join(path.dirname(process.execPath), 'Uninstall-Jarvis.ps1')); } catch {}
+  if (app.getName() !== 'Jarvis') {
+    // the app used to be called "Jarvis": remove its old shortcuts and start-with-Windows entry
+    for (const dir of [app.getPath('desktop'), path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs')]) { try { fs.unlinkSync(path.join(dir, 'Jarvis.lnk')); } catch {} }
+    for (const v of ['electron.app.Jarvis', 'Jarvis']) { try { spawn('reg', ['delete', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', v, '/f'], { windowsHide: true, stdio: 'ignore' }); } catch {} }
+    if (prefs.login) setTimeout(() => { try { app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] }); } catch {} }, 3000);
+  }
+  setTimeout(applyAppIcon, 1500);
 }
 
 /* ------------------------------------------------------------------ helpers */
@@ -209,9 +218,9 @@ ipcMain.handle('app:info', () => ({
 }));
 ipcMain.handle('app:prefs', (e, p) => {
   if ('tray' in p) prefs.tray = !!p.tray;
-  if ('login' in p && IS_WIN) app.setLoginItemSettings({ openAtLogin: !!p.login, args: ['--hidden'] });
+  if ('login' in p && IS_WIN) { prefs.login = !!p.login; app.setLoginItemSettings({ openAtLogin: !!p.login, args: ['--hidden'] }); }
   if ('wake' in p) { wakeOn = !!p.wake; trayMenu(); }
-  if ('aiName' in p) { prefs.aiName = String(p.aiName || 'Jarvis').slice(0, 24); if (win) win.setTitle(prefs.aiName); trayMenu(); }
+  if ('aiName' in p) { prefs.aiName = String(p.aiName || 'Miku').slice(0, 24); if (win) win.setTitle(prefs.aiName); trayMenu(); }
   savePrefs();
   return true;
 });
@@ -589,7 +598,7 @@ function createPet() {
   if (!onScreen) pos = { x: wa.x + wa.width - 300, y: wa.y + wa.height - 342 };
   petWin = new BrowserWindow({
     width: 300, height: 340, x: pos.x, y: pos.y, transparent: true, frame: false, resizable: false, movable: true,
-    alwaysOnTop: true, skipTaskbar: true, hasShadow: false, focusable: false, show: false, backgroundColor: '#00000000', title: 'Jarvis pet',
+    alwaysOnTop: true, skipTaskbar: true, hasShadow: false, focusable: false, show: false, backgroundColor: '#00000000', title: (prefs.aiName || 'Miku') + ' pet',
     webPreferences: { preload: path.join(__dirname, 'pet-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
   });
   petWin.setAlwaysOnTop(true, 'floating');
@@ -611,9 +620,9 @@ ipcMain.on('pet:click', () => { if (win) win.webContents.send('hotkey:talk'); })
 ipcMain.on('pet:menu', () => {
   if (!petWin) return;
   Menu.buildFromTemplate([
-    { label: 'Talk to ' + (prefs.aiName || 'Jarvis'), click: () => win && win.webContents.send('hotkey:talk') },
-    { label: 'Show ' + (prefs.aiName || 'Jarvis'), click: showWindow },
-    { label: 'Listen for “Hey ' + (prefs.aiName || 'Jarvis') + '”', type: 'checkbox', checked: wakeOn, click: m => win && win.webContents.send('tray:wake', m.checked) },
+    { label: 'Talk to ' + (prefs.aiName || 'Miku'), click: () => win && win.webContents.send('hotkey:talk') },
+    { label: 'Show ' + (prefs.aiName || 'Miku'), click: showWindow },
+    { label: 'Listen for “Hey ' + (prefs.aiName || 'Miku') + '”', type: 'checkbox', checked: wakeOn, click: m => win && win.webContents.send('tray:wake', m.checked) },
     { type: 'separator' },
     { label: 'Hide pet', click: () => win && win.webContents.send('pet:off') }
   ]).popup({ window: petWin });
@@ -659,6 +668,56 @@ ipcMain.handle('custom:clear', (e, slot) => {
   return { ok: true, urls: customUrls() };
 });
 
+/* ------------------------------------------------------------------ app icon: the user's own picture (stays on this PC)
+   Used for the window, taskbar and tray, and written into the Start-menu and desktop shortcuts. */
+function appIconImage() {
+  const f = prefs.appIcon && path.join(customDir(), prefs.appIcon);
+  if (f && fs.existsSync(f)) { const im = nativeImage.createFromPath(f); if (!im.isEmpty()) return im; }
+  return nativeImage.createFromPath(ICON);
+}
+function squareIcon(im, size) {
+  const { width: w, height: h } = im.getSize(), s = Math.max(w, h);
+  // pad to a square so the picture isn't squashed, then scale
+  const canvas = Buffer.alloc(s * s * 4), src = im.toBitmap(), ox = Math.floor((s - w) / 2), oy = Math.floor((s - h) / 2);
+  for (let y = 0; y < h; y++) src.copy(canvas, ((y + oy) * s + ox) * 4, y * w * 4, (y + 1) * w * 4);
+  return nativeImage.createFromBitmap(canvas, { width: s, height: s }).resize({ width: size, height: size, quality: 'best' });
+}
+function writeIco(im, file) {
+  // a .ico holding one 256x256 PNG (Windows Vista and later read this directly)
+  const png = squareIcon(im, 256).toPNG(), hdr = Buffer.alloc(22);
+  hdr.writeUInt16LE(0, 0); hdr.writeUInt16LE(1, 2); hdr.writeUInt16LE(1, 4);
+  hdr.writeUInt8(0, 6); hdr.writeUInt8(0, 7); hdr.writeUInt8(0, 8); hdr.writeUInt8(0, 9);
+  hdr.writeUInt16LE(1, 10); hdr.writeUInt16LE(32, 12); hdr.writeUInt32LE(png.length, 14); hdr.writeUInt32LE(22, 18);
+  fs.writeFileSync(file, Buffer.concat([hdr, png]));
+}
+function shortcutPaths() {
+  if (!IS_WIN) return [];
+  const name = app.getName() + '.lnk';
+  return [path.join(app.getPath('desktop'), name), path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', name)];
+}
+function applyAppIcon() {
+  const im = appIconImage();
+  try { if (win && !win.isDestroyed()) win.setIcon(squareIcon(im, 256)); } catch {}
+  try { if (tray) tray.setImage(squareIcon(im, 32)); } catch {}
+  if (!IS_WIN || !app.isPackaged) return;
+  let icon = process.execPath;
+  if (prefs.appIcon) { icon = path.join(customDir(), 'appicon.ico'); try { writeIco(im, icon); } catch { icon = process.execPath; } }
+  for (const lnk of shortcutPaths()) { try { if (fs.existsSync(lnk)) shell.writeShortcutLink(lnk, 'update', { icon, iconIndex: 0 }); } catch {} }
+}
+ipcMain.handle('appicon:get', () => prefs.appIcon && fs.existsSync(path.join(customDir(), prefs.appIcon)) ? 'app://jarvis/custom/' + encodeURIComponent(prefs.appIcon) : null);
+ipcMain.handle('appicon:pick', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Choose a picture for the app icon', properties: ['openFile'], filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp', 'ico'] }] });
+  if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+  const src = r.filePaths[0], im = nativeImage.createFromPath(src);
+  if (im.isEmpty()) return { ok: false, error: 'Could not open that picture.' };
+  const name = 'appicon-' + Date.now() + '.png';
+  fs.writeFileSync(path.join(customDir(), name), im.toPNG());
+  if (prefs.appIcon) { try { fs.unlinkSync(path.join(customDir(), prefs.appIcon)); } catch {} }
+  prefs.appIcon = name; savePrefs(); applyAppIcon();
+  return { ok: true, url: 'app://jarvis/custom/' + encodeURIComponent(name) };
+});
+ipcMain.handle('appicon:clear', () => { if (prefs.appIcon) { try { fs.unlinkSync(path.join(customDir(), prefs.appIcon)); } catch {} } delete prefs.appIcon; savePrefs(); applyAppIcon(); return { ok: true }; });
+
 /* ------------------------------------------------------------------ animated scene: a layered picture of the user's own (stays on this PC)
    A .jarvisscene file is JSON: { W, H, layers:[{ x, y, w, h, z, depth, src:"data:image/…" }] }.
    It is unpacked into the custom folder; a plain picture also works (one layer, gentle camera move). */
@@ -678,7 +737,7 @@ ipcMain.handle('scene:pick', async () => {
     let scene;
     if (ext === '.jarvisscene' || ext === '.json') {
       const j = JSON.parse(fs.readFileSync(src, 'utf8'));
-      if (!j || !Array.isArray(j.layers) || !j.layers.length || j.layers.length > 200 || !(j.W > 0) || !(j.H > 0)) throw new Error('This is not a Jarvis scene file.');
+      if (!j || !Array.isArray(j.layers) || !j.layers.length || j.layers.length > 200 || !(j.W > 0) || !(j.H > 0)) throw new Error('This is not a scene file.');
       clearScene();
       const layers = j.layers.map((l, i) => {
         const m = /^data:image\/(webp|png|jpeg);base64,(.+)$/.exec(String(l.src || ''));

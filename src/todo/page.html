@@ -1,4 +1,4 @@
-<title>Jarvis To-Do</title>
+<title>To-Do</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,500;0,700;1,800&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -363,7 +363,7 @@ async function del(id) {
 async function connect() {
   for (let i = 0; IN_FRAME && !HOST && i < 50; i++) { await new Promise(r => setTimeout(r, 100)); HOST = findHost(); }   // Jarvis may still be starting
   if (HOST) {
-    mode = 'jarvis'; tasks = HOST.all(); render(); setSave('Jarvis');
+    mode = 'jarvis'; tasks = HOST.all(); render(); setSave(HOST.name ? HOST.name() : 'the app');
     HOST.subscribe(all => { tasks = all; render(); });
     return;
   }

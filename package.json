@@ -1,7 +1,7 @@
 {
   "name": "jarvis",
   "version": "1.15.0",
-  "description": "J.A.R.V.I.S. local AI assistant",
+  "description": "M.I.K.U. local AI assistant",
   "main": "app/main.js",
   "scripts": {
     "build": "node scripts/build.js",
@@ -18,11 +18,11 @@
     "esbuild": "^0.28.2",
     "kokoro-js": "^1.2.1"
   },
-  "productName": "Jarvis",
+  "productName": "M.I.K.U",
   "build": {
     "appId": "local.jarvis.assistant",
-    "productName": "Jarvis",
-    "copyright": "Jarvis",
+    "productName": "M.I.K.U",
+    "copyright": "M.I.K.U",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -45,14 +45,14 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "Jarvis-Setup-${version}.${ext}"
+      "artifactName": "MIKU-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "Jarvis",
+      "shortcutName": "M.I.K.U",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "installerIcon": "build/icon.ico",
