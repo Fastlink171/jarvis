@@ -1,9 +1,8 @@
-## Jarvis 1.10.1
+## Jarvis 1.11.0: voice picker
 
-- **To-Do calendar now shows the whole day**, 12am to midnight. It opens scrolled to just before the current time, and you scroll up or down for early-morning or late-night tasks.
-- **Your data is protected across updates:**
-  - Updates never touch your To-Do, memories, settings or chat. They live in your Jarvis data folder, separate from the app.
-  - Memories, settings and chat are now also saved to a file. If the window's storage ever goes missing, Jarvis restores them automatically.
-  - A full backup is made before every update is installed, and Jarvis keeps the last 10.
-  - If the To-Do file is ever damaged, Jarvis loads the newest backup instead.
-  - New in Settings, under "Your data": **Back up now** and **Open backups**.
+- **Every English voice** is now in Settings → Voice: 15 female and 13 male, American and British, each with a short description.
+- **Preview button:** hear a voice before you keep it.
+- **Mix two voices:** pick a second voice and a mix amount to blend them into a new voice that's only yours.
+- **Pitch slider:** raise or lower the voice a little without changing how fast it talks.
+- **Reset voice to George:** one click puts back the original Jarvis voice.
+- All voices come with Jarvis and run on your PC, with no download needed.
