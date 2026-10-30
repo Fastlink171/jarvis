@@ -18,8 +18,8 @@ contextBridge.exposeInMainWorld('jarvis', {
   tts: { speak: inv('tts:speak'), abort: inv('tts:abort'), ping: inv('tts:ping') },
   custom: { get: inv('custom:get'), pick: inv('custom:pick'), clear: inv('custom:clear') },
   todo: { load: inv('todo:load'), save: inv('todo:save') },
-  appIcon: { get: inv('appicon:get'), pick: inv('appicon:pick'), clear: inv('appicon:clear') },
-  scene: { get: inv('scene:get'), pick: inv('scene:pick'), clear: inv('scene:clear') },
+  appIcon: { get: inv('appicon:get'), pick: inv('appicon:pick'), fromPet: inv('appicon:fromPet'), clear: inv('appicon:clear') },
+  scene: { get: inv('scene:get'), pick: inv('scene:pick'), clear: inv('scene:clear') },   // pass 'todo' for the To-Do scene
   data: { mirror: inv('data:mirror'), mirrorLoadSync: () => ipcRenderer.sendSync('data:mirrorLoadSync'), backupNow: inv('data:backupNow'), openFolder: inv('data:openFolder') },
   ollama: {
     version: inv('ollama:version'), tags: inv('ollama:tags'), ps: inv('ollama:ps'), show: inv('ollama:show'),

@@ -693,7 +693,8 @@ function writeIco(im, file) {
 function shortcutPaths() {
   if (!IS_WIN) return [];
   const name = app.getName() + '.lnk';
-  return [path.join(app.getPath('desktop'), name), path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', name)];
+  return [path.join(app.getPath('desktop'), name), path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', name),
+    path.join(app.getPath('appData'), 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar', name)];
 }
 function applyAppIcon() {
   const im = appIconImage();
@@ -703,6 +704,7 @@ function applyAppIcon() {
   let icon = process.execPath;
   if (prefs.appIcon) { icon = path.join(customDir(), 'appicon.ico'); try { writeIco(im, icon); } catch { icon = process.execPath; } }
   for (const lnk of shortcutPaths()) { try { if (fs.existsSync(lnk)) shell.writeShortcutLink(lnk, 'update', { icon, iconIndex: 0 }); } catch {} }
+  try { spawn('ie4uinit.exe', ['-show'], { windowsHide: true, stdio: 'ignore' }); } catch {}     // ask Windows to refresh its icon cache
 }
 ipcMain.handle('appicon:get', () => prefs.appIcon && fs.existsSync(path.join(customDir(), prefs.appIcon)) ? 'app://jarvis/custom/' + encodeURIComponent(prefs.appIcon) : null);
 ipcMain.handle('appicon:pick', async () => {
@@ -716,17 +718,29 @@ ipcMain.handle('appicon:pick', async () => {
   prefs.appIcon = name; savePrefs(); applyAppIcon();
   return { ok: true, url: 'app://jarvis/custom/' + encodeURIComponent(name) };
 });
+ipcMain.handle('appicon:fromPet', () => {
+  const f = prefs.custom && prefs.custom.idle && path.join(customDir(), prefs.custom.idle);
+  if (!f || !fs.existsSync(f)) return { ok: false, error: 'Set a pet picture first.' };
+  const im = nativeImage.createFromPath(f); if (im.isEmpty()) return { ok: false, error: 'Could not open the pet picture.' };
+  const name = 'appicon-' + Date.now() + '.png'; fs.writeFileSync(path.join(customDir(), name), im.toPNG());
+  if (prefs.appIcon) { try { fs.unlinkSync(path.join(customDir(), prefs.appIcon)); } catch {} }
+  prefs.appIcon = name; savePrefs(); applyAppIcon();
+  return { ok: true, url: 'app://jarvis/custom/' + encodeURIComponent(name) };
+});
 ipcMain.handle('appicon:clear', () => { if (prefs.appIcon) { try { fs.unlinkSync(path.join(customDir(), prefs.appIcon)); } catch {} } delete prefs.appIcon; savePrefs(); applyAppIcon(); return { ok: true }; });
 
 /* ------------------------------------------------------------------ animated scene: a layered picture of the user's own (stays on this PC)
    A .jarvisscene file is JSON: { W, H, layers:[{ x, y, w, h, z, depth, src:"data:image/…" }] }.
    It is unpacked into the custom folder; a plain picture also works (one layer, gentle camera move). */
-const sceneFile = () => path.join(customDir(), 'scene.json');
-function sceneUrl() { try { const st = fs.statSync(sceneFile()); return 'app://jarvis/custom/scene.json?v=' + Math.round(st.mtimeMs); } catch { return null; } }
-function clearScene() { for (const n of fs.readdirSync(customDir())) if (/^scene(-\d+\.\w+|\.json)$/.test(n)) { try { fs.unlinkSync(path.join(customDir(), n)); } catch {} } }
-ipcMain.handle('scene:get', () => sceneUrl());
-ipcMain.handle('scene:clear', () => { clearScene(); return { ok: true }; });
-ipcMain.handle('scene:pick', async () => {
+// two scenes: 'main' (the main screen) and 'todo' (the To-Do planner), each in its own set of files
+const scenePre = slot => slot === 'todo' ? 'tscene' : 'scene';
+const sceneFile = (slot = 'main') => path.join(customDir(), scenePre(slot) + '.json');
+function sceneUrl(slot = 'main') { try { const st = fs.statSync(sceneFile(slot)); return 'app://jarvis/custom/' + scenePre(slot) + '.json?v=' + Math.round(st.mtimeMs); } catch { return null; } }
+function clearScene(slot = 'main') { const re = new RegExp('^' + scenePre(slot) + '(-\\d+\\.\\w+|\\.json)$'); for (const n of fs.readdirSync(customDir())) if (re.test(n)) { try { fs.unlinkSync(path.join(customDir(), n)); } catch {} } }
+ipcMain.handle('scene:get', (e, slot) => sceneUrl(slot === 'todo' ? 'todo' : 'main'));
+ipcMain.handle('scene:clear', (e, slot) => { clearScene(slot === 'todo' ? 'todo' : 'main'); return { ok: true }; });
+ipcMain.handle('scene:pick', async (e, slotArg) => {
+  const slot = slotArg === 'todo' ? 'todo' : 'main', pre = scenePre(slot);
   const r = await dialog.showOpenDialog(win, { title: 'Choose an animated scene or a picture', properties: ['openFile'],
     filters: [{ name: 'Scenes and pictures', extensions: ['jarvisscene', 'json', 'png', 'jpg', 'jpeg', 'webp'] }] });
   if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
@@ -738,25 +752,25 @@ ipcMain.handle('scene:pick', async () => {
     if (ext === '.jarvisscene' || ext === '.json') {
       const j = JSON.parse(fs.readFileSync(src, 'utf8'));
       if (!j || !Array.isArray(j.layers) || !j.layers.length || j.layers.length > 200 || !(j.W > 0) || !(j.H > 0)) throw new Error('This is not a scene file.');
-      clearScene();
+      clearScene(slot);
       const layers = j.layers.map((l, i) => {
         const m = /^data:image\/(webp|png|jpeg);base64,(.+)$/.exec(String(l.src || ''));
         if (!m) throw new Error('Layer ' + (i + 1) + ' has no picture.');
-        const name = 'scene-' + String(i).padStart(3, '0') + '.' + (m[1] === 'jpeg' ? 'jpg' : m[1]);
+        const name = pre + '-' + String(i).padStart(3, '0') + '.' + (m[1] === 'jpeg' ? 'jpg' : m[1]);
         fs.writeFileSync(path.join(customDir(), name), Buffer.from(m[2], 'base64'));
         const n = k => Number.isFinite(+l[k]) ? +l[k] : 0;
-        return { file: name, x: n('x'), y: n('y'), w: n('w'), h: n('h'), z: n('z'), depth: Math.max(0, Math.min(2, n('depth'))), bg: /^(sky|building|background|bg)$/i.test(l.name || '') };
+        return { file: name, x: n('x'), y: n('y'), w: n('w'), h: n('h'), z: n('z'), depth: Math.max(0, Math.min(2, n('depth'))), bg: /^(sky|building|background|bg)$/i.test(l.name || ''), name: String(l.name || '').slice(0, 40) };
       });
       scene = { W: +j.W, H: +j.H, layers };
     } else {
       // a single picture: one layer that the camera drifts across
       const img = nativeImage.createFromPath(src); const sz = img.getSize();
       if (!sz.width) throw new Error('Could not open that picture.');
-      clearScene(); const name = 'scene-000' + ext; fs.copyFileSync(src, path.join(customDir(), name));
+      clearScene(slot); const name = pre + '-000' + ext; fs.copyFileSync(src, path.join(customDir(), name));
       scene = { W: sz.width, H: sz.height, layers: [{ file: name, x: 0, y: 0, w: sz.width, h: sz.height, z: 0, depth: .5, bg: true }] };
     }
-    fs.writeFileSync(sceneFile(), JSON.stringify(scene));
-    return { ok: true, url: sceneUrl(), layers: scene.layers.length };
+    fs.writeFileSync(sceneFile(slot), JSON.stringify(scene));
+    return { ok: true, url: sceneUrl(slot), layers: scene.layers.length };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 /* ------------------------------------------------------------------ your own voices: Kokoro voice files (.bin) kept on this PC, never in the repo

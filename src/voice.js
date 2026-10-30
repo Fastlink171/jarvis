@@ -74,6 +74,9 @@ async function loadHearing(model = 'whisper-base.en', onProgress) {
 const HALLU = /^\s*(\[[^\]]*\]|\([^)]*\)|thank you\.?|thanks for watching[.!]*|you\.?|bye\.?|\.+|okay\.?|so\.?|uh\.?|um\.?)\s*$/i;
 async function transcribe(samples) {
   if (!V.hearingReady) throw new Error('Hearing is not loaded yet.');
+  // quiet microphones: bring the speech up to a healthy level so Whisper can read it
+  let peak = 0; for (let i = 0; i < samples.length; i++) { const a = Math.abs(samples[i]); if (a > peak) peak = a; }
+  if (peak > 0.003 && peak < 0.5) { const g = Math.min(12, 0.7 / peak); for (let i = 0; i < samples.length; i++) samples[i] *= g; }
   const text = await ear('transcribe', { samples }, null, [samples.buffer]);
   return HALLU.test(text) ? '' : text;
 }
@@ -135,21 +138,21 @@ function processFrame(f) {
   if (wakeOn) feedWake(f);
   const muted = V.speaking || performance.now() < mutedUntil;
   if (!armed || muted) {
-    if (!recording) noise = noise * 0.98 + Math.min(rms, 0.05) * 0.02;
+    if (!recording) noise = noise * 0.98 + Math.min(rms, 0.03) * 0.02;
     if (muted && recording && mode === 'continuous') { recording = false; recBuf = []; setVad('armed'); }
     return;
   }
-  const thr = Math.max(0.006, noise * (2.2 + (1 - V.sensitivity) * 3));
+  const thr = Math.min(0.035 + (1 - V.sensitivity) * 0.02, Math.max(0.006, noise * (2.2 + (1 - V.sensitivity) * 3)));
   if (!recording) {
     preRoll.push(f); if (preRoll.length > 10) preRoll.shift();
-    noise = noise * 0.97 + Math.min(rms, 0.05) * 0.03;
+    noise = noise * 0.97 + Math.min(rms, 0.03) * 0.03;
     loud = rms > thr ? loud + 1 : 0;
     if (loud >= 3) { recording = true; recBuf = preRoll.slice(); preRoll = []; quiet = 0; setVad('recording'); clearTimeout(armTimer); }
   } else {
     recBuf.push(f);
     quiet = rms < thr * 0.8 ? quiet + 1 : 0;
     const secs = recBuf.length * FRAME / 16000;
-    const endAfter = mode === 'once' ? 30 : 25;           // ~0.95 s / 0.8 s of silence
+    const endAfter = mode === 'once' ? 34 : 28;           // ~1.1 s / 0.9 s of silence
     if (quiet >= endAfter || secs > 20) finishUtterance();
   }
 }

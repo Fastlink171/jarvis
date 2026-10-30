@@ -250,10 +250,13 @@
     </select></div>
     <div class="field"><label>APP ICON · <span id="appIconState">DEFAULT</span></label>
       <p class="note">Pick any picture for the window, taskbar, tray and shortcuts. It stays on this PC.</p>
-      <div class="acts"><span class="th" id="appIconTh" style="width:34px;height:34px;border-radius:8px;background:center/contain no-repeat;display:inline-block;vertical-align:middle;border:1px solid var(--edge)"></span><button class="btn" id="appIconPick">CHOOSE PICTURE…</button><button class="btn" id="appIconClear">USE DEFAULT</button></div></div>
+      <div class="acts"><span class="th" id="appIconTh" style="width:34px;height:34px;border-radius:8px;background:center/contain no-repeat;display:inline-block;vertical-align:middle;border:1px solid var(--edge)"></span><button class="btn" id="appIconPet">USE PET PICTURE</button><button class="btn" id="appIconPick">CHOOSE PICTURE…</button><button class="btn" id="appIconClear">USE DEFAULT</button></div></div>
     <div class="field" id="sceneRow"><label>ANIMATED SCENE · <span id="sceneState">NONE LOADED</span></label>
       <p class="note">Load a scene file (a picture cut into layers) or any picture. The camera follows your mouse; closer layers move more. It stays on this PC.</p>
       <div class="acts"><button class="btn" id="scenePick">LOAD SCENE…</button><button class="btn" id="sceneClear">REMOVE</button></div>
+      <div class="field" style="margin:8px 0 0"><label>TO-DO SCENE · <span id="tsceneState">NONE LOADED</span></label>
+        <p class="note">A separate layered picture behind the To-Do planner, with its own look to match.</p>
+        <div class="acts"><button class="btn" id="tscenePick">LOAD TO-DO SCENE…</button><button class="btn" id="tsceneClear">REMOVE</button></div></div>
       <div class="field" style="margin:8px 0 0"><label>CAMERA MOTION <span id="sceneAmtV"></span></label><input type="range" id="sceneAmt" min="0" max="2" step="0.05"></div></div>
     <div class="field"><label class="chk"><input type="checkbox" id="petChk"> DESKTOP PET — A LITTLE JARVIS ON YOUR DESKTOP</label></div>
     <div class="field"><label>CUSTOM LOOK · YOUR OWN PICTURES (THEY STAY ON THIS PC)</label>

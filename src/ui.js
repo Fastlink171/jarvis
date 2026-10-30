@@ -154,6 +154,21 @@ function nameRe(name){
   return pat || 'jarvis';
 }
 let WAKE = JARVIS_WAKE;
+const SK = { b:'P', p:'P', m:'M', n:'M', k:'K', c:'K', g:'K', q:'K', x:'K', d:'T', t:'T', f:'F', v:'F', s:'S', z:'S', j:'J', l:'L', r:'R', w:'', h:'', y:'' };
+const skel = w => w.toLowerCase().replace(/[^a-z]/g, '').replace(/ck/g, 'k').replace(/(.)\1+/g, '$1').split('').map(c => /[aeiou]/.test(c) ? '' : (c in SK ? SK[c] : c)).join('');
+// "Hey Nico, …", "Mikey pause the music": the name heard as a similar-sounding word near the start
+function fuzzyWake(text){
+  const name = aiName(); if (isJarvis()) return null;
+  const want = skel(name); if (!want) return null;
+  const words = text.trim().split(/\s+/);
+  let i = 0; if (/^(hey|hi|ok|okay|yo|a|hay|hello)[,.!]?$/i.test(words[0] || '')) i = 1;
+  for (const take of [1, 2]) {
+    const cand = words.slice(i, i + take).join('');
+    const clean = cand.replace(/[^a-z]/gi, '');
+    if (clean && skel(clean) === want && Math.abs(clean.length - name.length) <= 2) return words.slice(i + take).join(' ').replace(/^[\s,.!?]+/, '');
+  }
+  return null;
+}
 function buildWake(){ WAKE = isJarvis() ? JARVIS_WAKE : new RegExp(`^(?:(?:hey|hi|ok|okay|yo|a)[\\s,]+)?(?:${nameRe(aiName())})\\b[\\s,.!?]*|^(?:hey|hi)[\\s,.!?]*$`, 'i'); }
 buildWake();
 const RENAME_SKIP = /^(PRE|CODE|TEXTAREA|INPUT|SCRIPT|STYLE|SELECT|OPTION)$/;
@@ -198,9 +213,10 @@ function onHeard(text, direct){
   if (S.pending) { if (YES.test(clean)) return S.pending.answer(true); if (NO.test(clean)) return S.pending.answer(false); }
   if (!direct) {
     const m = clean.match(WAKE);
+    const fz = m ? null : fuzzyWake(clean);
     const followUp = Date.now() < S.awaitingUntil;
-    if (!m && !followUp) return;
-    const rest = m ? clean.slice(m[0].length).trim() : clean;
+    if (!m && fz === null && !followUp) { event('heard (no “Hey ' + aiName() + '”): ' + clean.slice(0, 60)); return; }
+    const rest = m ? clean.slice(m[0].length).trim() : fz !== null ? fz : clean;
     $('#heard').textContent = clean; setTimeout(() => $('#heard').textContent = '', 3000);
     if (!rest) { S.awaitingUntil = Date.now() + 9000; return reply(pick(ackList())); }
     return handle(rest);
@@ -256,7 +272,7 @@ async function onWakeWord(score, interrupted){
     }
     if (restoreVol != null) J.pc('setVolume', { level: restoreVol });
     S.listening = false; setState();
-    if (!text) { earcon(false); return; }
+    if (!text) { earcon(false); event('heard nothing clear after the wake word'); await speak(pick(['Sorry, I didn’t catch that.', 'Sorry, could you say that again?'])); S.awaitingUntil = Date.now() + 9000; return; }
     $('#heard').textContent = text; setTimeout(() => $('#heard').textContent = '', 3000);
     handle(text);
   } finally { wakeBusy = false; S.listening = false; setState(); }
@@ -273,7 +289,7 @@ function renderMem(){
 /* ---- To-Do: Jarvis keeps the tasks (file on the PC); the To-Do screen and the AI share them */
 const TC = window.TodoCore;
 const TODO = {
-  tasks: {}, subs: new Set(), saveT: 0, name: () => aiName(),
+  tasks: {}, subs: new Set(), saveT: 0, name: () => aiName(), scene: () => J.scene.get('todo'), sceneAmt: () => S.sceneAmt,
   all() { return JSON.parse(JSON.stringify(this.tasks)); },
   list() { return Object.values(this.tasks); },
   put(t) { this.tasks[t.id] = { ...t, kind: 'task' }; this.changed(); },
@@ -1449,6 +1465,7 @@ function wire(){
   const showIcon = url => { $('#appIconTh').style.backgroundImage = url ? `url('${url}')` : ''; $('#appIconState').textContent = url ? 'YOUR PICTURE' : 'DEFAULT'; };
   J.appIcon.get().then(showIcon);
   $('#appIconPick').onclick = async () => { const r = await J.appIcon.pick(); if (r && r.ok) { showIcon(r.url); event('app icon changed'); } else if (r && r.error) $('#appIconState').textContent = r.error.toUpperCase(); };
+  $('#appIconPet').onclick = async () => { const r = await J.appIcon.fromPet(); if (r && r.ok) { showIcon(r.url); event('app icon set from the pet picture'); } else $('#appIconState').textContent = ((r && r.error) || 'Could not set it').toUpperCase(); };
   $('#appIconClear').onclick = async () => { await J.appIcon.clear(); showIcon(null); };
   $('#aiNameIn').value = aiName();
   $('#aiNameIn').onchange = e => {
@@ -1491,6 +1508,14 @@ function wire(){
     if (S.theme !== 'scene') { S.theme = 'scene'; store.set('theme', 'scene'); $('#themeSel').value = 'scene'; document.body.classList.remove('theme-neon'); applyQuality(); buildScene(); renderCounters(); }
     event('animated scene loaded');
   };
+  J.scene.get('todo').then(u => $('#tsceneState').textContent = u ? 'LOADED' : 'NONE LOADED');
+  $('#tscenePick').onclick = async () => {
+    const r = await J.scene.pick('todo'); if (!r || r.canceled) return;
+    if (!r.ok) { $('#tsceneState').textContent = 'COULD NOT LOAD — ' + (r.error || '').toUpperCase(); return; }
+    $('#tsceneState').textContent = 'LOADED · ' + r.layers + ' LAYERS'; event('To-Do scene loaded');
+    try { $('#todoFrame').contentWindow.location.reload(); } catch {}
+  };
+  $('#tsceneClear').onclick = async () => { await J.scene.clear('todo'); $('#tsceneState').textContent = 'NONE LOADED'; try { $('#todoFrame').contentWindow.location.reload(); } catch {} };
   $('#sceneClear').onclick = async () => { await J.scene.clear(); PSCENE.url = null; PSCENE.loaded = ''; $('#pStage').innerHTML = ''; $('#sceneState').textContent = 'NONE LOADED'; applyQuality(); };
   $('#themeSel').onchange = e => { S.theme = e.target.value; store.set('theme', S.theme); document.body.classList.remove('theme-neon'); applyQuality(); buildScene(); renderCounters(); J.pet && J.pet.theme(S.theme); event('theme: ' + S.theme); };
   $('#qualSel').value = quality;
