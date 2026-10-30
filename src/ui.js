@@ -70,7 +70,7 @@ const userName = () => S.name || (S.info.user ? S.info.user[0].toUpperCase() + S
 function tb(id, val, cls){ const el = $(id); el.className = 'tb ' + (cls || ''); el.querySelector('b').textContent = val; }
 let petState = '';
 function setState(){
-  const t = speaking() ? 'speaking' : S.thinking ? 'thinking' : S.listening ? 'listening' : (S.wake ? 'say “hey jarvis”' : 'standby');
+  const t = speaking() ? 'speaking' : S.thinking ? 'thinking' : S.listening ? 'listening' : (S.wake ? `say “hey ${aiName().toLowerCase()}”` : 'standby');
   const ps = speaking() ? 'speaking' : S.thinking ? 'thinking' : S.listening ? 'listening' : 'idle';
   if (ps !== petState) { petState = ps; J.pet.set({ state: ps }); }
   $('#state').textContent = t;
@@ -84,7 +84,7 @@ function event(msg){
 }
 function addMsg(who, text, extra){
   const d = document.createElement('div'); d.className = 'row ' + who;
-  const label = who === 'user' ? userName().toUpperCase().slice(0, 9) : who === 'sys' ? 'SYSTEM' : who === 'tool' ? '' : 'JARVIS';
+  const label = who === 'user' ? userName().toUpperCase().slice(0, 9) : who === 'sys' ? 'SYSTEM' : who === 'tool' ? '' : aiName().toUpperCase().slice(0, 9);
   d.innerHTML = `<b>${esc(label)}</b><div>${esc(text)}</div>`;
   if (extra) d.lastChild.appendChild(extra);
   const log = $('#log'); log.appendChild(d); log.scrollTop = 1e9;
@@ -143,7 +143,29 @@ async function talk(){
   if (!text) earcon(false);
   if (text) { $('#heard').textContent = text; setTimeout(() => $('#heard').textContent = '', 3000); onHeard(text, true); }
 }
-const WAKE = /^(?:(?:hey|hi|ok|okay|yo|a)[\s,]+)?(?:jarvis|jervis|jarvus|jarvas|jarv|service)\b[\s,.!?]*|^(?:hey|hi)[\s,.!?]*$/i;
+const JARVIS_WAKE = /^(?:(?:hey|hi|ok|okay|yo|a)[\s,]+)?(?:jarvis|jervis|jarvus|jarvas|jarv|service)\b[\s,.!?]*|^(?:hey|hi)[\s,.!?]*$/i;
+/* The assistant's name is a setting. "Jarvis" uses the trained "Hey Jarvis" detector; any other name is caught by speech recognition. */
+const aiName = () => (String(store.get('aiName', 'Jarvis') || '').trim() || 'Jarvis');
+const isJarvis = () => /^jarvis$/i.test(aiName());
+function nameRe(name){
+  // forgiving spelling: any vowels for vowels, doubled letters, k/c/q alike — "Miku" also matches "Meeku", "Mikku"
+  const pat = name.toLowerCase().replace(/[^a-z]/g, '').split('').map(ch => /[aeiouy]/.test(ch) ? '[aeiouy]+' : /[kcq]/.test(ch) ? '(?:k|c|ck|q)+' : ch + '+').join('').replace(/(\[aeiouy\]\+)+/g, '[aeiouy]+');
+  return pat || 'jarvis';
+}
+let WAKE = JARVIS_WAKE;
+function buildWake(){ WAKE = isJarvis() ? JARVIS_WAKE : new RegExp(`^(?:(?:hey|hi|ok|okay|yo|a)[\\s,]+)?(?:${nameRe(aiName())})\\b[\\s,.!?]*|^(?:hey|hi)[\\s,.!?]*$`, 'i'); }
+buildWake();
+function applyName(){
+  const n = aiName(), up = n.toUpperCase();
+  const logo = isJarvis() ? 'J.A.R.V.I.S' : up.replace(/[^A-Z0-9]/g, '').split('').join('.');
+  const sub = isJarvis() ? 'JUST A RATHER VERY INTELLIGENT SYSTEM' : 'PERSONAL ASSISTANT · RUNS ON THIS PC';
+  document.querySelectorAll('.logo').forEach(l => { l.firstChild.textContent = logo; const sm = l.querySelector('small'); if (sm) sm.textContent = sub; });
+  document.title = n;
+  const tb = document.querySelector('.todoBar span'); if (tb) tb.textContent = logo;
+  const wp = document.getElementById('wakePill'); if (wp) { wp.childNodes.forEach(c => { if (c.nodeType === 3 && /HEY/.test(c.textContent)) c.textContent = 'HEY ' + up + ' '; }); wp.title = `Listen for “Hey ${n}” all the time (even in games). Everything stays on this PC.`; }
+  const ni = document.getElementById('nameIn'); if (ni) ni.placeholder = `What should ${n} call you?`;
+  J.setPrefs({ aiName: n });
+}
 const YES = /^(yes|yeah|yep|do it|go ahead|proceed|confirm|run it|affirmative|sure|ok|okay|execute|please do)\b/i;
 const NO  = /^(no|nope|cancel|stop|abort|negative|don'?t|never mind|nevermind)\b/i;
 function onHeard(text, direct){
@@ -155,7 +177,7 @@ function onHeard(text, direct){
     if (!m && !followUp) return;
     const rest = m ? clean.slice(m[0].length).trim() : clean;
     $('#heard').textContent = clean; setTimeout(() => $('#heard').textContent = '', 3000);
-    if (!rest) { S.awaitingUntil = Date.now() + 9000; return reply(pick(['Yes, sir?', 'At your service.', 'Sir?'])); }
+    if (!rest) { S.awaitingUntil = Date.now() + 9000; return reply(pick(ackList())); }
     return handle(rest);
   }
   handle(clean.replace(WAKE, '') || clean);
@@ -165,6 +187,14 @@ async function setWake(on){
   $('#wakePill').classList.toggle('on', on); $('#wakeTxt').textContent = on ? 'ON' : 'OFF';
   if (!V) { setState(); return; }
   try {
+    if (!isJarvis()) {
+      await V.setWakeWord(false).catch(() => {});
+      if (on && !V.hearingReady) { event(`“Hey ${aiName()}” starts once hearing has loaded`); setState(); return; }
+      await V.setContinuous(on, t => onHeard(t, false));
+      if (on) event(`listening for “Hey ${aiName()}” (speech recognition)`);
+      setState(); return;
+    }
+    await V.setContinuous(false).catch(() => {});
     await V.setWakeWord(on, onWakeWord);
     if (on) event('listening for “Hey Jarvis”');
   } catch (e) {
@@ -176,11 +206,13 @@ async function setWake(on){
   setState();
 }
 const ACKS = ['Yes, sir?', 'Sir?', 'At your service.', 'Go ahead, sir.'];
+const ACKS2 = ['Yes?', 'I\'m here!', 'Hm?', 'Go ahead!'];
+const ackList = () => isJarvis() ? ACKS : ACKS2;
 let wakeBusy = false;
 async function onWakeWord(score, interrupted){
   if (wakeBusy || S.listening) return;
   wakeBusy = true;
-  event('heard “Hey Jarvis” (' + Math.round(score * 100) + '%)' + (interrupted ? ' — interrupting' : ''));
+  event(`heard “Hey ${aiName()}” (` + Math.round(score * 100) + '%)' + (interrupted ? ' — interrupting' : ''));
   try {
     if (S.thinking || speaking()) interrupt();
     if (!V.hearingReady) { await speak(V.hearingLoading ? 'One moment, sir — my hearing is still loading.' : 'My hearing isn’t set up yet, sir. Settings will walk you through it.'); return; }
@@ -193,7 +225,7 @@ async function onWakeWord(score, interrupted){
     let text = (await V.listenOnce(1800, !interrupted).catch(() => '')).replace(WAKE, '').replace(/^[\s,.!?]+/, '').trim();
     if (!text) {
       S.listening = false; setState();
-      await speak(pick(ACKS));
+      await speak(pick(ackList()));
       S.listening = true; setState();
       text = (await V.listenOnce(7000).catch(() => '')).replace(WAKE, '').trim();
     }
@@ -262,7 +294,7 @@ function renderTodoGlance() {
   const box = $('#todoGlance'); if (!box) return;
   const over = todoRange('overdue'), next = [...over, ...todoRange('upcoming')].slice(0, 5);
   $('#todoBadge').textContent = over.length + todoRange('today').length || '';
-  if (!next.length) { box.innerHTML = '<div class="muted">Nothing coming up. Say “Hey Jarvis, add …” or open the To-Do.</div>'; return; }
+  if (!next.length) { box.innerHTML = `<div class="muted">Nothing coming up. Say “Hey ${esc(aiName())}, add …” or open the To-Do.</div>`; return; }
   box.innerHTML = next.map(t => `<div class="ti" data-id="${t.id}"><i class="${t.tag}"></i><span>${esc(t.title)}</span><em class="${t.date && t.date < TC.ymd(TC.today()) ? 'late' : ''}">${esc(todoWhen(t))}</em></div>`).join('');
 }
 async function loadTodo() {
@@ -351,7 +383,7 @@ function tickTodoReminders(){
     if (left <= 10 && left >= 0 && !sent[key]) {
       sent[key] = Date.now();
       const msg = left <= 1 ? `Sir, it’s time for ${t.title}.` : `Sir, in ${left} minutes: ${t.title}.`;
-      reply(msg); try { new Notification('Jarvis · To-Do', { body: `${t.title} — ${TC.fmtTime(t.time)}` }); } catch {} J.flash();
+      reply(msg); try { new Notification(aiName() + ' · To-Do', { body: `${t.title} — ${TC.fmtTime(t.time)}` }); } catch {} J.flash();
     }
   }
   for (const k of Object.keys(sent)) if (Date.now() - sent[k] > 3 * 86400000) delete sent[k];
@@ -365,7 +397,7 @@ function tickTimers(){
       beep();
       const msg = t.kind === 'reminder' ? `Sir, a reminder: ${t.label}.` : `Sir, your ${t.label || fmtDur(t.len)} timer is done.`;
       reply(msg);
-      try { new Notification('Jarvis', { body: msg }); } catch {}
+      try { new Notification(aiName(), { body: msg }); } catch {}
       J.flash();
     });
   }
@@ -659,11 +691,11 @@ function systemPrompt(){
   const todoSnap = [...todoRange('overdue'), ...todoRange('today'), ...todoRange('tomorrow')].slice(0, 12).map(t => `${t.title} (${todoWhen(t)}, ${TC.TAGS[t.tag].label})`);
   const open = todoSnap;
   const mem = S.memories.slice(0, 50).map(m => '- ' + m.text).join('\n');
-  return `You are J.A.R.V.I.S. ("Jarvis"), a personal AI assistant living on ${userName()}'s Windows PC (${S.info.computer || 'this PC'}, ${S.info.os || 'Windows'}). You run entirely on this computer.
+  return `${isJarvis() ? 'You are J.A.R.V.I.S. ("Jarvis")' : 'You are ' + aiName()}, a personal AI assistant living on ${userName()}'s Windows PC (${S.info.computer || 'this PC'}, ${S.info.os || 'Windows'}). You run entirely on this computer.
 Current date and time: ${new Date().toLocaleString([], { weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'numeric', minute:'2-digit' })}.
 User's name: ${userName()}. Home folder: ${S.info.home || ''}. PowerShell current folder: ${S.cwd || S.info.home || ''}.
 ${pcSnapshot()}${S.gaming ? `The user is playing ${S.gameApp} in fullscreen right now: do not bring other windows to the front unless they ask, keep replies very short.\n` : ''}${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${open.length ? 'To-Do (overdue, today, tomorrow): ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
-PERSONALITY: calm, capable, quietly witty, British, loyal. Address the user as "sir" occasionally, not every sentence.
+${isJarvis() ? 'PERSONALITY: calm, capable, quietly witty, British, loyal. Address the user as "sir" occasionally, not every sentence.' : `PERSONALITY: warm, upbeat, capable and a little playful. Your name is ${aiName()}; you are this user\'s own assistant, not a character from anything else. Use their name now and then.`}
 
 HOW YOU WORK:
 - You have tools. Use them instead of guessing. For anything about current events, prices, people, products, sports, or facts you are not certain of: call web_search, then read_webpage on the best one or two results, then answer. Never invent facts, numbers or URLs.
@@ -1125,11 +1157,11 @@ async function loadVoiceModels(fromSetup){
     V.hearingLoading = true; tb('#tbEar', 'LOADING', 'warn');
     if (fromSetup) { $('#voiceProg').classList.add('show'); }
     tasks.push(V.loadHearing(S.ear, fromSetup ? progressTracker('#voiceProg i', '#voiceTxt', 'Hearing') : null)
-      .then(() => { V.hearingLoading = false; tb('#tbEar', (S.ear.includes('small') ? 'WHISPER S' : 'WHISPER') + ' · ' + V.hearingDevice.toUpperCase(), 'on'); event('hearing ready (' + V.hearingDevice + ')'); })
+      .then(() => { V.hearingLoading = false; tb('#tbEar', (S.ear.includes('small') ? 'WHISPER S' : 'WHISPER') + ' · ' + V.hearingDevice.toUpperCase(), 'on'); event('hearing ready (' + V.hearingDevice + ')'); if (S.wake && !isJarvis()) setWake(true); })
       .catch(e => { V.hearingLoading = false; tb('#tbEar', 'FAILED', 'off'); event('hearing failed: ' + e.message); throw e; }));
   }
   const voiceTask = () => V.loadVoice(fromSetup ? progressTracker('#voiceProg i', '#voiceTxt', 'Voice') : null)
-    .then(() => { fillVoiceSelect(); event('voice ready'); V.prepare(ACKS, voiceOpts()); })
+    .then(() => { fillVoiceSelect(); event('voice ready'); V.prepare(ackList(), voiceOpts()); })
     .catch(e => { tb('#tbVoice', 'WINDOWS', 'warn'); event('neural voice failed, using Windows voice: ' + e.message); throw e; });
   if (!V.voiceReady) { tb('#tbVoice', 'LOADING', 'warn'); }
   try {
@@ -1361,6 +1393,13 @@ function wire(){
   // settings
   $('#closeModal').onclick = () => $('#modal').classList.remove('show');
   $('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').classList.remove('show'); };
+  $('#aiNameIn').value = aiName();
+  $('#aiNameIn').onchange = e => {
+    const n = String(e.target.value || '').replace(/[^\p{L}\p{N} '\-]/gu, '').trim().slice(0, 24) || 'Jarvis';
+    store.set('aiName', n); e.target.value = n; buildWake(); applyName(); setState();
+    if (S.wake) setWake(true);
+    event('assistant name: ' + n);
+  };
   $('#nameIn').value = S.name; $('#nameIn').onchange = e => { S.name = e.target.value.trim(); store.set('name', S.name); renderOperator(); };
   $('#modelSel').onchange = async e => { S.model = e.target.value; store.set('model', S.model); S.history = []; await loadModelInfo(); updateBrainChip(); event('brain: ' + S.model); warmUp(); };
   $('#refreshModels').onclick = refreshModels;
@@ -1477,7 +1516,7 @@ let greeted = false;
 function greet(){
   if (greeted) return; greeted = true;
   const name = S.name ? ', ' + S.name : ', sir';
-  addMsg('sys', `J.A.R.V.I.S. online. Brain: ${S.model || 'none'}. Welcome back, ${userName()}.`);
+  addMsg('sys', `${isJarvis() ? 'J.A.R.V.I.S.' : aiName()} online. Brain: ${S.model || 'none'}. Welcome back, ${userName()}.`);
   const line = S.ollama && S.model ? `${greeting()}${name}. All systems online.` + (S.memories.length ? ` I remember ${S.memories.length} thing${S.memories.length > 1 ? 's' : ''} about you.` : '') : `${greeting()}${name}. My brain isn’t set up yet — Settings will walk you through it.`;
   reply(line);
   if (!S.info.login && !store.get('askedLogin', false)) { store.set('askedLogin', true); addMsg('sys', 'Tip: Settings → “Start Jarvis with Windows” keeps me ready at all times. Press Ctrl+Shift+J from any app to talk.'); }
@@ -1488,7 +1527,7 @@ async function boot(){
   if (S.info.platform === 'darwin') document.body.classList.add('mac');
   $('#login').checked = !!S.info.login; $('#trayChk').checked = !!S.info.tray;
   renderOperator(); renderCounters(); renderMem(); renderTimers(); renderRelays(); setState();
-  loadTodo(); PSCENE.load();
+  loadTodo(); PSCENE.load(); applyName();
   $('#wakePill').classList.toggle('on', S.wake); $('#wakeTxt').textContent = S.wake ? 'ON' : 'OFF';
   applyQuality(); buildScene();
   let rz = 0; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { buildScene(); renderCounters(); }, 200); });

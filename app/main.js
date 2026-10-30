@@ -40,7 +40,7 @@ const MIME = { '.gif': 'image/gif', '.webp': 'image/webp', '.jpg': 'image/jpeg',
 function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 980, minHeight: 640, show: false,
-    title: 'Jarvis', icon: ICON, backgroundColor: '#07111f',
+    title: prefs.aiName || 'Jarvis', icon: ICON, backgroundColor: '#07111f',
     titleBarStyle: 'hidden',
     titleBarOverlay: IS_WIN ? { color: '#08121f', symbolColor: '#cfe9f7', height: 32 } : undefined,
     autoHideMenuBar: true,
@@ -70,13 +70,13 @@ function showWindow() { if (!win) return; if (win.isMinimized()) win.restore(); 
 function trayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Show Jarvis', click: showWindow },
-    { label: 'Talk to Jarvis   (Ctrl+Shift+J)', click: () => win.webContents.send('hotkey:talk') },
-    { label: 'Listen for “Hey Jarvis”', type: 'checkbox', checked: wakeOn, click: m => win.webContents.send('tray:wake', m.checked) },
+    { label: 'Show ' + (prefs.aiName || 'Jarvis'), click: showWindow },
+    { label: 'Talk to ' + (prefs.aiName || 'Jarvis') + '   (Ctrl+Shift+J)', click: () => win.webContents.send('hotkey:talk') },
+    { label: 'Listen for “Hey ' + (prefs.aiName || 'Jarvis') + '”', type: 'checkbox', checked: wakeOn, click: m => win.webContents.send('tray:wake', m.checked) },
     { type: 'separator' },
-    { label: 'Quit Jarvis', click: () => { quitting = true; app.quit(); } }
+    { label: 'Quit ' + (prefs.aiName || 'Jarvis'), click: () => { quitting = true; app.quit(); } }
   ]));
-  tray.setToolTip(wakeOn ? 'Jarvis — listening for “Jarvis”' : 'Jarvis');
+  tray.setToolTip(wakeOn ? `${prefs.aiName || 'Jarvis'} — listening for “Hey ${prefs.aiName || 'Jarvis'}”` : (prefs.aiName || 'Jarvis'));
 }
 
 function setupTray() {
@@ -211,6 +211,7 @@ ipcMain.handle('app:prefs', (e, p) => {
   if ('tray' in p) prefs.tray = !!p.tray;
   if ('login' in p && IS_WIN) app.setLoginItemSettings({ openAtLogin: !!p.login, args: ['--hidden'] });
   if ('wake' in p) { wakeOn = !!p.wake; trayMenu(); }
+  if ('aiName' in p) { prefs.aiName = String(p.aiName || 'Jarvis').slice(0, 24); if (win) win.setTitle(prefs.aiName); trayMenu(); }
   savePrefs();
   return true;
 });
@@ -610,9 +611,9 @@ ipcMain.on('pet:click', () => { if (win) win.webContents.send('hotkey:talk'); })
 ipcMain.on('pet:menu', () => {
   if (!petWin) return;
   Menu.buildFromTemplate([
-    { label: 'Talk to Jarvis', click: () => win && win.webContents.send('hotkey:talk') },
-    { label: 'Show Jarvis', click: showWindow },
-    { label: 'Listen for “Hey Jarvis”', type: 'checkbox', checked: wakeOn, click: m => win && win.webContents.send('tray:wake', m.checked) },
+    { label: 'Talk to ' + (prefs.aiName || 'Jarvis'), click: () => win && win.webContents.send('hotkey:talk') },
+    { label: 'Show ' + (prefs.aiName || 'Jarvis'), click: showWindow },
+    { label: 'Listen for “Hey ' + (prefs.aiName || 'Jarvis') + '”', type: 'checkbox', checked: wakeOn, click: m => win && win.webContents.send('tray:wake', m.checked) },
     { type: 'separator' },
     { label: 'Hide pet', click: () => win && win.webContents.send('pet:off') }
   ]).popup({ window: petWin });
