@@ -42,7 +42,7 @@ const MODELS = [
 /* ============================================================ state */
 const S = {
   info:{}, name:store.get('name', ''), ollama:false, models:[], model:store.get('model', ''), caps:[], modelSize:0,
-  deep:store.get('deep', false), duck:store.get('duck', true), visible:true, media:[], apps:[], todoOpen:false, remind:store.get('remind', true),
+  deep:store.get('deep', false), duck:store.get('duck', true), visible:true, media:[], apps:[], todoOpen:false, remind:store.get('remind', true), sceneAmt:store.get('sceneAmt', 1),
   theme:(store.get('theme18', false) ? store.get('theme', 'neon') : (store.set('theme18', true), store.set('theme', 'neon'), 'neon')),
   pet:store.get('pet', true), custom:{}, wallImg:null, petScale:store.get('petScale', 1), wallDim:store.get('wallDim', 0.35),
   screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
@@ -61,8 +61,8 @@ const QUALITY = {
 };
 let quality = store.get('quality', 'balanced'); if (!QUALITY[quality]) quality = 'balanced';
 let Q = QUALITY[quality];
-function applyQuality(){ document.body.classList.toggle('noblur', !Q.blur); document.body.classList.toggle('theme-neon', S.theme === 'neon'); }
-const accentRGB = () => S.theme === 'neon' ? '60,240,220' : '143,227,255';
+function applyQuality(){ document.body.classList.toggle('noblur', !Q.blur); document.body.classList.toggle('theme-neon', S.theme === 'neon'); document.body.classList.toggle('theme-scene', S.theme === 'scene'); if (typeof PSCENE !== 'undefined') PSCENE.sync(); }
+const accentRGB = () => S.theme === 'neon' ? '60,240,220' : S.theme === 'scene' ? '134,214,226' : '143,227,255';
 const speaking = () => !!(V && V.speaking);
 const userName = () => S.name || (S.info.user ? S.info.user[0].toUpperCase() + S.info.user.slice(1) : 'Operator');
 
@@ -1178,6 +1178,72 @@ function syncVoiceUi(){
 
 /* ============================================================ scene + orb (shared with the HTML version) */
 /*__SCENE_ORB__*/
+/* ============================================================ animated scene (layered picture, camera follows the mouse) */
+const PSCENE = {
+  url: null, layers: [], W: 1, H: 1, scale: 1, tx: 0, ty: 0, cx: 0, cy: 0, last: 0, raf: 0, loaded: '',
+  async load(){
+    this.url = await J.scene.get();
+    const st = $('#sceneState'); if (st) st.textContent = this.url ? 'LOADED' : 'NONE LOADED';
+    this.sync();
+  },
+  async build(){
+    if (!this.url || this.loaded === this.url) return;
+    this.loaded = this.url;
+    const stage = $('#pStage'); stage.innerHTML = ''; this.layers = [];
+    let sc; try { sc = await (await fetch(this.url)).json(); } catch { return; }
+    this.W = sc.W; this.H = sc.H; stage.style.width = sc.W + 'px'; stage.style.height = sc.H + 'px';
+    sc.layers.slice().sort((a, b) => a.z - b.z).forEach((l, i) => {
+      const im = new Image(); im.decoding = 'async'; im.alt = ''; im.src = 'app://jarvis/custom/' + encodeURIComponent(l.file);
+      Object.assign(im.style, { left: l.x + 'px', top: l.y + 'px', width: l.w + 'px', height: l.h + 'px', zIndex: l.z });
+      stage.append(im);
+      const single = sc.layers.length === 1;
+      this.layers.push({ el: im, d: l.depth, idle: l.bg || single ? 0 : (l.w * l.h > 250000 ? 1.6 : 3 + (i % 3) * 1.4), ph: i * 1.7, sp: .45 + (i % 4) * .12 });
+    });
+    this.fit();
+  },
+  fit(){ this.scale = Math.max(innerWidth / this.W, innerHeight / this.H) * (this.layers.length === 1 ? 1.12 : 1.09); },
+  sync(){
+    const on = S.theme === 'scene' && !!this.url;
+    if (S.theme === 'scene' && !this.url) document.body.classList.add('theme-neon');      // nothing loaded yet: keep a background
+    if (on) { this.build(); if (!this.raf) this.raf = requestAnimationFrame(t => this.tick(t)); }
+    $('#pScene').style.visibility = on ? 'visible' : 'hidden';
+  },
+  tick(now){
+    this.raf = 0;
+    if (S.theme !== 'scene' || !this.url) return;
+    this.raf = requestAnimationFrame(t => this.tick(t));
+    // pause while hidden, gaming, or the To-Do covers the window; slow down when Jarvis isn't focused
+    if (document.hidden || !S.visible || S.gaming || (S.todoOpen && !todoAnim?.playState?.includes('running'))) { this.last = now; return; }
+    if (!document.hasFocus() && now - this.last < 66) return;
+    const dt = Math.min(.05, (now - this.last) / 1000); this.last = now;
+    const k = 1 - Math.exp(-dt * 4.2), m = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : S.sceneAmt, t = now / 1000;
+    this.cx += (this.tx - this.cx) * k; this.cy += (this.ty - this.cy) * k;
+    $('#pStage').style.transform = `translate(-50%,-50%) scale(${this.scale}) rotateY(${this.cx * 1.4 * m}deg) rotateX(${-this.cy * m}deg)`;
+    const R = 38;
+    for (const L of this.layers) {
+      const bob = m ? Math.sin(t * L.sp + L.ph) * L.idle : 0, sway = m ? Math.cos(t * L.sp * .8 + L.ph) * L.idle * .5 : 0;
+      L.el.style.transform = `translate3d(${(-this.cx * R * L.d * m + sway).toFixed(2)}px,${(-this.cy * R * .62 * L.d * m + bob).toFixed(2)}px,0)`;
+    }
+  }
+};
+addEventListener('pointermove', e => { PSCENE.tx = e.clientX / innerWidth * 2 - 1; PSCENE.ty = e.clientY / innerHeight * 2 - 1; }, { passive: true });
+document.addEventListener('pointerleave', () => { PSCENE.tx = PSCENE.ty = 0; });
+addEventListener('blur', () => { PSCENE.tx = PSCENE.ty = 0; });
+addEventListener('resize', () => PSCENE.fit());
+// voice wave (replaces the orb in the scene theme): moves with Jarvis's voice and your mic
+const waveCv = document.getElementById('wave');
+function drawWave(now){
+  const w = waveCv.width = waveCv.clientWidth * devicePixelRatio, h = waveCv.height = waveCv.clientHeight * devicePixelRatio; if (!w) return;
+  const x = waveCv.getContext('2d'), t = now / 1000;
+  const lv = Math.min(1, Math.max(V ? (V.outLevel || 0) * 1.4 : 0, (S.listening && V ? (V.level || 0) * 2 : 0), S.thinking ? .25 : 0));
+  const base = .12 + lv * .88;
+  for (const [amp, col, f] of [[.32, 'rgba(236,197,142,.55)', 1.3], [.22, 'rgba(134,214,226,.9)', 2.1]]) {
+    x.beginPath();
+    for (let i = 0; i <= w; i += 3) { const u = i / w, env = Math.sin(Math.PI * u) ** 2; x.lineTo(i, h / 2 + Math.sin(u * 14 * f + t * 2.4 * f) * env * amp * h * base); }
+    x.strokeStyle = col; x.lineWidth = 1.6 * devicePixelRatio; x.stroke();
+  }
+}
+
 let lastFrame = 0;
 function frame(t){
   requestAnimationFrame(frame);
@@ -1185,7 +1251,9 @@ function frame(t){
   // fewer frames while the AI is thinking (it shares the graphics card) or when Jarvis isn't the active window
   let fps = Q.fps; if (S.thinking) fps = Math.min(fps, 20); if (!document.hasFocus()) fps = Math.min(fps, 10);
   if (t - lastFrame < 1000 / fps - 2) return;
-  lastFrame = t; drawScene(t); drawOrb(t);
+  lastFrame = t;
+  if (S.theme === 'scene') { drawWave(t); return; }
+  drawScene(t); drawOrb(t);
 }
 // note any moment the window stalls, so problems can be traced from the LOG panel
 let lastStallLog = 0;
@@ -1298,7 +1366,17 @@ function wire(){
   $('#autoSafe').checked = S.autoSafe; $('#autoSafe').onchange = e => { S.autoSafe = e.target.checked; store.set('autoSafe', S.autoSafe); };
   $('#confirm').checked = S.confirm; $('#confirm').onchange = e => { S.confirm = e.target.checked; store.set('confirm', S.confirm); };
   $('#themeSel').value = S.theme;
-  $('#themeSel').onchange = e => { S.theme = e.target.value; store.set('theme', S.theme); applyQuality(); buildScene(); renderCounters(); J.pet && J.pet.theme(S.theme); event('theme: ' + S.theme); };
+  $('#sceneAmt').value = S.sceneAmt; $('#sceneAmtV').textContent = Math.round(S.sceneAmt * 100) + '%';
+  $('#sceneAmt').oninput = e => { S.sceneAmt = +e.target.value; store.set('sceneAmt', S.sceneAmt); $('#sceneAmtV').textContent = Math.round(S.sceneAmt * 100) + '%'; };
+  $('#scenePick').onclick = async () => {
+    const r = await J.scene.pick(); if (!r || r.canceled) return;
+    if (!r.ok) { $('#sceneState').textContent = 'COULD NOT LOAD — ' + (r.error || '').toUpperCase(); return; }
+    PSCENE.loaded = ''; await PSCENE.load(); $('#sceneState').textContent = 'LOADED · ' + r.layers + ' LAYER' + (r.layers === 1 ? '' : 'S');
+    if (S.theme !== 'scene') { S.theme = 'scene'; store.set('theme', 'scene'); $('#themeSel').value = 'scene'; document.body.classList.remove('theme-neon'); applyQuality(); buildScene(); renderCounters(); }
+    event('animated scene loaded');
+  };
+  $('#sceneClear').onclick = async () => { await J.scene.clear(); PSCENE.url = null; PSCENE.loaded = ''; $('#pStage').innerHTML = ''; $('#sceneState').textContent = 'NONE LOADED'; applyQuality(); };
+  $('#themeSel').onchange = e => { S.theme = e.target.value; store.set('theme', S.theme); document.body.classList.remove('theme-neon'); applyQuality(); buildScene(); renderCounters(); J.pet && J.pet.theme(S.theme); event('theme: ' + S.theme); };
   $('#qualSel').value = quality;
   $('#qualSel').onchange = e => { quality = e.target.value; store.set('quality', quality); Q = QUALITY[quality]; applyQuality(); buildScene(); event('visual quality: ' + quality); };
   $('#celsius').checked = S.celsius; $('#celsius').onchange = e => { S.celsius = e.target.checked; store.set('celsius', S.celsius); loadWeather(); };
@@ -1388,7 +1466,7 @@ async function boot(){
   if (S.info.platform === 'darwin') document.body.classList.add('mac');
   $('#login').checked = !!S.info.login; $('#trayChk').checked = !!S.info.tray;
   renderOperator(); renderCounters(); renderMem(); renderTimers(); renderRelays(); setState();
-  loadTodo();
+  loadTodo(); PSCENE.load();
   $('#wakePill').classList.toggle('on', S.wake); $('#wakeTxt').textContent = S.wake ? 'ON' : 'OFF';
   applyQuality(); buildScene();
   let rz = 0; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { buildScene(); renderCounters(); }, 200); });

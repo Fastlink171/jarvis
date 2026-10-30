@@ -657,13 +657,55 @@ ipcMain.handle('custom:clear', (e, slot) => {
   return { ok: true, urls: customUrls() };
 });
 
+/* ------------------------------------------------------------------ animated scene: a layered picture of the user's own (stays on this PC)
+   A .jarvisscene file is JSON: { W, H, layers:[{ x, y, w, h, z, depth, src:"data:image/…" }] }.
+   It is unpacked into the custom folder; a plain picture also works (one layer, gentle camera move). */
+const sceneFile = () => path.join(customDir(), 'scene.json');
+function sceneUrl() { try { const st = fs.statSync(sceneFile()); return 'app://jarvis/custom/scene.json?v=' + Math.round(st.mtimeMs); } catch { return null; } }
+function clearScene() { for (const n of fs.readdirSync(customDir())) if (/^scene(-\d+\.\w+|\.json)$/.test(n)) { try { fs.unlinkSync(path.join(customDir(), n)); } catch {} } }
+ipcMain.handle('scene:get', () => sceneUrl());
+ipcMain.handle('scene:clear', () => { clearScene(); return { ok: true }; });
+ipcMain.handle('scene:pick', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Choose an animated scene or a picture', properties: ['openFile'],
+    filters: [{ name: 'Scenes and pictures', extensions: ['jarvisscene', 'json', 'png', 'jpg', 'jpeg', 'webp'] }] });
+  if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+  const src = r.filePaths[0], st = fs.statSync(src);
+  if (st.size > 120 * 1024 * 1024) return { ok: false, error: 'That file is over 120 MB.' };
+  try {
+    const ext = path.extname(src).toLowerCase();
+    let scene;
+    if (ext === '.jarvisscene' || ext === '.json') {
+      const j = JSON.parse(fs.readFileSync(src, 'utf8'));
+      if (!j || !Array.isArray(j.layers) || !j.layers.length || j.layers.length > 200 || !(j.W > 0) || !(j.H > 0)) throw new Error('This is not a Jarvis scene file.');
+      clearScene();
+      const layers = j.layers.map((l, i) => {
+        const m = /^data:image\/(webp|png|jpeg);base64,(.+)$/.exec(String(l.src || ''));
+        if (!m) throw new Error('Layer ' + (i + 1) + ' has no picture.');
+        const name = 'scene-' + String(i).padStart(3, '0') + '.' + (m[1] === 'jpeg' ? 'jpg' : m[1]);
+        fs.writeFileSync(path.join(customDir(), name), Buffer.from(m[2], 'base64'));
+        const n = k => Number.isFinite(+l[k]) ? +l[k] : 0;
+        return { file: name, x: n('x'), y: n('y'), w: n('w'), h: n('h'), z: n('z'), depth: Math.max(0, Math.min(2, n('depth'))), bg: /^(sky|building|background|bg)$/i.test(l.name || '') };
+      });
+      scene = { W: +j.W, H: +j.H, layers };
+    } else {
+      // a single picture: one layer that the camera drifts across
+      const img = nativeImage.createFromPath(src); const sz = img.getSize();
+      if (!sz.width) throw new Error('Could not open that picture.');
+      clearScene(); const name = 'scene-000' + ext; fs.copyFileSync(src, path.join(customDir(), name));
+      scene = { W: sz.width, H: sz.height, layers: [{ file: name, x: 0, y: 0, w: sz.width, h: sz.height, z: 0, depth: .5, bg: true }] };
+    }
+    fs.writeFileSync(sceneFile(), JSON.stringify(scene));
+    return { ok: true, url: sceneUrl(), layers: scene.layers.length };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 /* ------------------------------------------------------------------ your data: kept safe across updates
    Everything Jarvis knows about you lives in %APPDATA%\Jarvis, which installs and updates never touch.
    On top of that: the window's storage (memories, settings, chat) is mirrored to jarvis-data.json, and a
    full snapshot is copied to backups\ before every update is installed. */
 const dataDir = () => app.getPath('userData');
 const mirrorFile = () => path.join(dataDir(), 'jarvis-data.json');
-const DATA_FILES = ['prefs.json', 'todo.json', 'jarvis-data.json'];
+const DATA_FILES = ['prefs.json', 'todo.json', 'jarvis-data.json'];   // (the custom folder, scene included, is copied too)
 function snapshotData(label) {
   try {
     const root = path.join(dataDir(), 'backups'), stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
