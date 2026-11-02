@@ -23,7 +23,7 @@ function friendly(err, url, timeoutMs, cancelled) {
   if (err && err.name === 'AbortError') { const e = new Error(`custom voice server took longer than ${Math.round(timeoutMs / 1000)} s`); e.code = 'timeout'; return e; }
   const c = err && (err.cause && err.cause.code || err.code);
   if (c === 'ECONNREFUSED' || c === 'ECONNRESET' || c === 'EHOSTUNREACH' || /fetch failed/i.test(err && err.message || '')) {
-    const e = new Error(`custom voice server isn't running at ${url.host} — start Start-TTS.cmd and keep its window open`); e.code = 'offline'; return e;
+    const e = new Error(`custom voice engine isn't running at ${url.host}`); e.code = 'offline'; return e;
   }
   return err instanceof Error ? err : new Error(String(err));
 }

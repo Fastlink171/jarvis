@@ -817,12 +817,50 @@ ipcMain.handle('voices:openFolder', () => shell.openPath(voicesDir()));
 
 /* ------------------------------------------------------------------ custom trained voice: a local TTS server on this PC (see tts.js) */
 const tts = require('./tts');
+// The app runs the voice engine itself (hidden), from the voice folder — no window to keep open.
+const { createHost, findEngine, search: findVoiceFolder } = require('./ttshost');
+const ttsHost = createHost({ log: m => console.info('[tts]', m) });
+function ttsDir() {
+  if (prefs.ttsDir && findEngine(prefs.ttsDir).ok) return prefs.ttsDir;
+  const docs = (() => { try { return app.getPath('documents'); } catch { return path.join(os.homedir(), 'Documents'); } })();
+  const found = findVoiceFolder([path.join(docs, 'Codex'), path.join(app.getPath('userData'), 'tts'), path.join(os.homedir(), 'Downloads'), docs], 5);
+  if (found) { prefs.ttsDir = found; savePrefs(); }
+  return found || prefs.ttsDir || '';
+}
+const ttsStatus = async (url, start) => {
+  const dir = ttsDir();
+  const st = start ? await ttsHost.ensure(dir, url) : { ...ttsHost.state(), running: (await tts.ping(url, 1500)).ok };
+  return { ok: !!st.running, ours: !!st.ours, starting: !!st.starting, error: st.running ? '' : (st.error || (dir ? '' : 'voice folder not found — press CHOOSE FOLDER')), dir };
+};
 ipcMain.handle('tts:speak', async (e, id, text, opts) => {
-  try { const wav = await tts.speak(id, text, opts || {}); return { ok: true, wav: new Uint8Array(wav.buffer, wav.byteOffset, wav.byteLength) }; }
-  catch (err) { return { ok: false, error: err.message, code: err.code || 'error' }; }
+  opts = opts || {};
+  const once = async () => { const wav = await tts.speak(id, text, opts); return { ok: true, wav: new Uint8Array(wav.buffer, wav.byteOffset, wav.byteLength) }; };
+  try { return await once(); }
+  catch (err) {
+    if (err.code === 'offline' && ttsDir()) {
+      // not running: start it, but don't hold the reply for long — this sentence uses the fallback voice if it's still loading
+      const up = ttsHost.ensure(ttsDir(), opts.url);
+      const st = await Promise.race([up, new Promise(r => setTimeout(() => r(null), 15000))]);
+      if (st && st.running) { try { return await once(); } catch (e2) { err = e2; } }
+      else if (!st) err = Object.assign(new Error('voice engine is still starting up'), { code: 'starting' });
+      else err = Object.assign(new Error(st.error || err.message), { code: 'offline' });
+    }
+    return { ok: false, error: err.message, code: err.code || 'error' };
+  }
 });
 ipcMain.handle('tts:abort', (e, id) => { if (id == null) tts.abortAll(); else tts.abort(id); });
-ipcMain.handle('tts:ping', (e, url) => tts.ping(url).catch(err => ({ ok: false, error: err.message })));
+ipcMain.handle('tts:ping', (e, url) => ttsStatus(url, false).catch(err => ({ ok: false, error: err.message })));
+ipcMain.handle('tts:start', (e, url) => ttsStatus(url, true).catch(err => ({ ok: false, error: err.message })));
+ipcMain.handle('tts:stop', () => { ttsHost.stop(); return true; });
+ipcMain.handle('tts:pickDir', async (e, url) => {
+  const r = await dialog.showOpenDialog(win, { title: 'Choose your trained voice folder (the one with "models" and "runtime" inside)', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+  const eng = findEngine(r.filePaths[0]);
+  if (!eng.ok) return { ok: false, error: eng.error, dir: r.filePaths[0] };
+  prefs.ttsDir = r.filePaths[0]; savePrefs(); ttsHost.stop();
+  return ttsStatus(url, true);
+});
+app.on('will-quit', () => ttsHost.stop());
 
 /* ------------------------------------------------------------------ your data: kept safe across updates
    Everything Jarvis knows about you lives in %APPDATA%\Jarvis, which installs and updates never touch.

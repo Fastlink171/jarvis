@@ -1314,13 +1314,19 @@ function syncVoiceUi(){
   if (custom) tb('#tbVoice', V && V.customError ? 'CUSTOM OFFLINE' : 'CUSTOM', V && V.customError ? 'warn' : 'on');
   else if (V && V.voiceReady) tb('#tbVoice', S.mixVoice && S.mixAmt > 0 ? 'MIX' : nm, 'on');
 }
-// custom trained voice: is the local server answering?
-async function checkCustomVoice(say){
-  $('#customTxt').textContent = 'Checking…';
-  const r = await J.tts.ping(S.customUrl).catch(e => ({ ok: false, error: e.message }));
-  if (V) V.customError = r.ok ? '' : r.error;
-  $('#customTxt').textContent = r.ok ? 'Server is running.' : 'Not reachable: ' + r.error + '. Jarvis will use ' + (V && V.voiceReady ? 'Kokoro' : 'the Windows voice') + ' until it is.';
-  syncVoiceUi(); if (!r.ok) event('custom voice: ' + r.error);
+// custom trained voice: the app starts the engine itself (hidden) and reports how it's doing
+function showCustom(r){
+  if (V) V.customError = r.ok ? '' : (r.error || 'not running');
+  $('#customState').textContent = r.ok ? 'RUNNING' : r.starting ? 'STARTING' : 'OFF';
+  $('#customDir').textContent = r.dir ? r.dir : 'Voice folder not found yet';
+  $('#customDir').title = r.dir || '';
+  $('#customTxt').textContent = r.ok ? '' : r.error ? 'Problem: ' + r.error + '.' : '';
+  syncVoiceUi();
+}
+async function checkCustomVoice(){
+  $('#customState').textContent = 'STARTING'; $('#customTxt').textContent = 'Loading the voice…';
+  const r = await J.tts.start(S.customUrl).catch(e => ({ ok: false, error: e.message }));
+  showCustom(r); if (r.ok) event('custom voice ready'); else event('custom voice: ' + r.error);
   return r.ok;
 }
 
@@ -1511,14 +1517,14 @@ function wire(){
   $('#moreModels').onclick = () => { $('#modal').classList.remove('show'); runSetup(true).then(watchSetup); };
   $('#rerunSetup').onclick = $('#moreModels').onclick;
   $('#deep').checked = S.deep; $('#deep').onchange = e => { S.deep = e.target.checked; store.set('deep', S.deep); };
-  $('#voiceSel').onchange = e => { stopVoice(); S.ttsEngine = e.target.value === 'custom' ? 'custom' : ''; store.set('ttsEngine', S.ttsEngine); if (S.ttsEngine) { syncVoiceUi(); checkCustomVoice(); return; } if (e.target.value !== 'windows') { S.voice = e.target.value; store.set('voice', S.voice); syncVoiceUi(); } else { if (V) V.voiceReady = false; tb('#tbVoice', 'WINDOWS', 'warn'); syncVoiceUi(); } };
+  $('#voiceSel').onchange = e => { stopVoice(); const was = S.ttsEngine; S.ttsEngine = e.target.value === 'custom' ? 'custom' : ''; store.set('ttsEngine', S.ttsEngine); if (was && !S.ttsEngine) J.tts.stop(); if (S.ttsEngine) { syncVoiceUi(); checkCustomVoice(); return; } if (e.target.value !== 'windows') { S.voice = e.target.value; store.set('voice', S.voice); syncVoiceUi(); } else { if (V) V.voiceReady = false; tb('#tbVoice', 'WINDOWS', 'warn'); syncVoiceUi(); } };
   $('#mixSel').onchange = e => { S.mixVoice = e.target.value; store.set('mixVoice', S.mixVoice); if (S.mixVoice && !S.mixAmt) { S.mixAmt = .4; store.set('mixAmt', S.mixAmt); } syncVoiceUi(); };
   $('#mixAmt').oninput = e => { S.mixAmt = +e.target.value; store.set('mixAmt', S.mixAmt); syncVoiceUi(); };
   $('#kpitch').oninput = e => { S.kpitch = +e.target.value; store.set('kpitch', S.kpitch); syncVoiceUi(); };
   $('#voicePrev').onclick = () => { stopVoice(); speak(pick(['Hello. This is how I sound now.', 'Ready when you are. What are we doing today?', 'All systems online. How do I sound?'])); };
   $('#voiceFolder').onclick = () => J.voices.openFolder();
-  $('#customUrl').value = S.customUrl; $('#customUrl').onchange = e => { S.customUrl = e.target.value.trim() || 'http://127.0.0.1:5003/v1/audio/speech'; e.target.value = S.customUrl; store.set('customUrl', S.customUrl); checkCustomVoice(); };
-  $('#customCheck').onclick = () => checkCustomVoice();
+  $('#customCheck').onclick = async () => { await J.tts.stop(); checkCustomVoice(); };
+  $('#customPick').onclick = async () => { const r = await J.tts.pickDir(S.customUrl); if (r.canceled) return; showCustom(r); if (!r.ok) $('#customTxt').textContent = 'That folder won’t work: ' + r.error + '.'; };
   J.voices.list().then(v => { myVoices = v || []; fillVoiceSelect(); }).catch(() => {});
   $('#voiceReset').onclick = () => { Object.assign(S, { voice:'bm_george', mixVoice:'', mixAmt:0, kpitch:1, rate:1, ttsEngine:'' }); ['voice','mixVoice','mixAmt','kpitch','rate','ttsEngine'].forEach(k => store.set(k, S[k])); $('#rate').value = 1; $('#rateV').textContent = '1.00'; fillVoiceSelect(); };
   $('#rate').value = S.rate; const showR = () => $('#rateV').textContent = (+S.rate).toFixed(2); showR();

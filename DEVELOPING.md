@@ -9,6 +9,7 @@
 - `src/wake.js` – "Hey Jarvis" detector, a port of openWakeWord's streaming pipeline (mel → embedding → wake model, 80 ms chunks). Verified to match the Python reference to ~3e-6. Models in `app/renderer/wake/`.
 - `src/voice.js` – Whisper hearing + Kokoro voice + mic VAD, bundled by esbuild. Also plays the optional custom trained voice.
 - `app/tts.js` – client for a custom TTS server on this PC (OpenAI-style `POST /v1/audio/speech` → WAV, default `http://127.0.0.1:5003`). Local addresses only, 30 s timeout, cancellable. Used through the `tts:*` IPC calls.
+- `app/ttshost.js` – finds the trained voice folder (KoboldCpp exe + .gguf models), starts it hidden on demand, reuses one already running, and stops it on quit. Folder saved as `ttsDir` in prefs.json.
 - `scripts/build.js` – produces `app/renderer/ui.js`, `voice.js` and `ort/` (all git-ignored).
 
 ## Releasing an update
