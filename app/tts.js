@@ -35,7 +35,9 @@ async function speak(id, text, opts = {}) {
   const timeoutMs = Math.max(2000, Math.min(120000, +opts.timeoutMs || DEFAULTS.timeoutMs));
   const body = {
     model: opts.model || DEFAULTS.model, input: String(text || ''), voice: opts.voice || DEFAULTS.voice,
-    language: opts.language || langOf(String(text || '')), response_format: 'wav'
+    language: opts.language || langOf(String(text || '')), response_format: 'wav',
+    // a fixed seed keeps the voice the same from sentence to sentence (otherwise the engine picks a random one each time)
+    seed: Number.isInteger(+opts.seed) && +opts.seed > 0 ? +opts.seed : 1234
   };
   const ac = new AbortController(), rec = { ac, cancelled: false };
   if (id != null) inflight.set(id, rec);

@@ -253,6 +253,8 @@ async function runQueue() {
   }
   V.currentText = '';
   qRunning = false; setSpeaking(false);
+  // reply finished (nothing more queued for a moment): the next reply tries the custom voice again
+  clearTimeout(stickyTimer); if (stickyFallback) stickyTimer = setTimeout(() => { if (!qRunning && !queue.length) stickyFallback = false; }, 2500);
 }
 const synthCache = new Map();
 function synth(item) {
@@ -269,10 +271,12 @@ function synth(item) {
 }
 // Custom trained voice: a local TTS server reached through the main process (app/tts.js), one sentence at a time and
 // in order — it renders a whole sentence before answering. If it fails, the sentence falls back to Kokoro or Windows.
-let customChain = Promise.resolve(), ttsSeq = 0, lastCustomErr = '', lastCustomErrAt = 0;
+// Once a sentence has fallen back, the rest of that reply stays on the fallback voice too, so one reply never mixes voices.
+let customChain = Promise.resolve(), ttsSeq = 0, lastCustomErr = '', lastCustomErrAt = 0, stickyFallback = false, stickyTimer = 0;
 function synthCustom(item) {
   const p = customChain.then(async () => {
     if (item.gen !== genId) return null;                      // stopped while waiting its turn
+    if (stickyFallback) { const e = new Error('rest of this reply uses the fallback voice'); e.code = 'sticky'; throw e; }
     const r = await window.jarvis.tts.speak('t' + (++ttsSeq), item.text, { url: item.opts.customUrl });
     if (!r.ok) { if (r.code === 'cancelled') return null; const e = new Error(r.error); e.code = r.code; throw e; }
     if (item.gen !== genId) return null;
@@ -285,6 +289,8 @@ function synthCustom(item) {
   return p;
 }
 function customFailed(e) {
+  stickyFallback = true; clearTimeout(stickyTimer);
+  if (e.code === 'sticky') return;
   const now = Date.now(); V.customError = e.message;
   if (e.message !== lastCustomErr || now - lastCustomErrAt > 30000) { V.log(e.message + ' — using the fallback voice'); V.onCustomError && V.onCustomError(e); }
   lastCustomErr = e.message; lastCustomErrAt = now;
@@ -322,6 +328,7 @@ function stopSpeaking() {
   try { playing && playing.stop(); } catch {}
   try { speechSynthesis.cancel(); } catch {}
   try { window.jarvis && window.jarvis.tts && window.jarvis.tts.abort(null); } catch {}
+  stickyFallback = false; clearTimeout(stickyTimer);
   setSpeaking(false);
 }
 
