@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const inv = ch => (...a) => ipcRenderer.invoke(ch, ...a);
-const EVENTS = new Set(['chat:chunk', 'pull:progress', 'hotkey:talk', 'update:status', 'tray:wake', 'win:visible', 'pet:off']);
+const EVENTS = new Set(['chat:chunk', 'pull:progress', 'hotkey:talk', 'update:status', 'tray:wake', 'win:visible', 'pet:off', 'kws:hit', 'kws:error']);
 
 contextBridge.exposeInMainWorld('jarvis', {
   info: inv('app:info'),
@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   tts: { speak: inv('tts:speak'), abort: inv('tts:abort'), ping: inv('tts:ping') },
   custom: { get: inv('custom:get'), pick: inv('custom:pick'), clear: inv('custom:clear') },
   todo: { load: inv('todo:load'), save: inv('todo:save') },
+  kws: { start: inv('kws:start'), stop: inv('kws:stop'), feed: f => ipcRenderer.send('kws:feed', f) },
   appIcon: { get: inv('appicon:get'), pick: inv('appicon:pick'), fromPet: inv('appicon:fromPet'), clear: inv('appicon:clear') },
   scene: { get: inv('scene:get'), pick: inv('scene:pick'), clear: inv('scene:clear') },   // pass 'todo' for the To-Do scene
   data: { mirror: inv('data:mirror'), mirrorLoadSync: () => ipcRenderer.sendSync('data:mirrorLoadSync'), backupNow: inv('data:backupNow'), openFolder: inv('data:openFolder') },

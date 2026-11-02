@@ -32,6 +32,10 @@
       "package.json"
     ],
     "asar": true,
+    "asarUnpack": [
+      "node_modules/sherpa-onnx/**",
+      "app/kws/**"
+    ],
     "electronLanguages": [
       "en-US"
     ],
@@ -68,7 +72,8 @@
     ]
   },
   "dependencies": {
-    "electron-updater": "^6.8.11"
+    "electron-updater": "^6.8.11",
+    "sherpa-onnx": "^2.0.1"
   },
   "repository": {
     "type": "git",

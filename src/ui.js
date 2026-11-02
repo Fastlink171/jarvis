@@ -230,11 +230,18 @@ async function setWake(on){
   try {
     if (!isJarvis()) {
       await V.setWakeWord(false).catch(() => {});
-      if (on && !V.hearingReady) { event(`“Hey ${aiName()}” starts once hearing has loaded`); setState(); return; }
-      await V.setContinuous(on, t => onHeard(t, false));
-      if (on) event(`listening for “Hey ${aiName()}” (speech recognition)`);
+      await stopKws();
+      if (on) {
+        // first choice: the dedicated keyword spotter; fallback: speech recognition
+        const ok = await startKws();
+        if (ok) { await V.setContinuous(false).catch(() => {}); event(`listening for “Hey ${aiName()}” (wake-phrase detector)`); setState(); return; }
+        if (!V.hearingReady) { event(`“Hey ${aiName()}” starts once hearing has loaded`); setState(); return; }
+        await V.setContinuous(true, t => onHeard(t, false));
+        event(`listening for “Hey ${aiName()}” (speech recognition)`);
+      } else await V.setContinuous(false).catch(() => {});
       setState(); return;
     }
+    await stopKws();
     await V.setContinuous(false).catch(() => {});
     await V.setWakeWord(on, onWakeWord);
     if (on) event('listening for “Hey Jarvis”');
@@ -246,6 +253,30 @@ async function setWake(on){
   }
   setState();
 }
+/* "Hey <name>" detector: mic audio (16 kHz) goes to a small keyword spotter in the background */
+let kwsOn = false, kwsBuf = [], kwsN = 0;
+async function startKws(){
+  if (!J.kws) return false;
+  const n = aiName(), thr = 0.32 - (S.sens ?? 0.5) * 0.2;          // sensitivity slider: higher = easier to wake
+  const r = await J.kws.start({ phrases: [`hey ${n}`, `hi ${n}`, `okay ${n}`], threshold: thr }).catch(e => ({ ok: false, error: e.message }));
+  if (!r || !r.ok) { event('wake-phrase detector unavailable (' + ((r && r.error) || 'unknown') + ')'); return false; }
+  try { await V.startMic(); } catch (e) { addMsg('sys', 'Microphone problem: ' + e.message); return false; }
+  kwsOn = true; kwsBuf = []; kwsN = 0;
+  V.frameTap = f => {                                  // send ~128 ms at a time
+    if (!kwsOn) return;
+    kwsBuf.push(f); kwsN += f.length;
+    if (kwsN >= 2048) { const out = new Float32Array(kwsN); let o = 0; for (const b of kwsBuf) { out.set(b, o); o += b.length; } kwsBuf = []; kwsN = 0; J.kws.feed(out); }
+  };
+  return true;
+}
+async function stopKws(){ if (!kwsOn) return; kwsOn = false; V.frameTap = null; await J.kws.stop().catch(() => {}); }
+J.on('kws:hit', () => {
+  if (!S.wake || !kwsOn) return;
+  const talking = speaking();
+  if (talking && new RegExp('\\b' + aiName().replace(/[^\w]/g, '') + '\\b', 'i').test(V.currentText || '')) return;   // her own voice saying her name
+  onWakeWord(1, talking);
+});
+J.on('kws:error', e => event('wake-phrase detector: ' + e));
 const ACKS = ['Yes, sir?', 'Sir?', 'At your service.', 'Go ahead, sir.'];
 const ACKS2 = ['Yes?', 'I\'m here!', 'Hm?', 'Go ahead!'];
 const ackList = () => isJarvis() ? ACKS : ACKS2;
@@ -1495,7 +1526,7 @@ function wire(){
   $('#testVoice').onclick = () => { stopVoice(); speak(`${greeting()}, sir. All systems are online and at your disposal.`); };
   $('#earSel').value = S.ear; $('#earSel').onchange = e => { S.ear = e.target.value; store.set('ear', S.ear); if (V) { V.hearingReady = false; loadVoiceModels(false); } };
   $('#sens').value = S.sens; const showS = () => $('#sensV').textContent = Math.round(S.sens * 100) + '%'; showS();
-  $('#sens').oninput = e => { S.sens = +e.target.value; store.set('sens', S.sens); if (V) { V.sensitivity = S.sens; V.wakeThreshold = 0.75 - 0.45 * S.sens; } showS(); };
+  $('#sens').oninput = e => { S.sens = +e.target.value; store.set('sens', S.sens); if (V) { V.sensitivity = S.sens; V.wakeThreshold = 0.75 - 0.45 * S.sens; } showS(); clearTimeout(S.sensT); S.sensT = setTimeout(() => { if (S.wake && !isJarvis()) setWake(true); }, 800); };
   $('#autoSafe').checked = S.autoSafe; $('#autoSafe').onchange = e => { S.autoSafe = e.target.checked; store.set('autoSafe', S.autoSafe); };
   $('#confirm').checked = S.confirm; $('#confirm').onchange = e => { S.confirm = e.target.checked; store.set('confirm', S.confirm); };
   $('#themeSel').value = S.theme;

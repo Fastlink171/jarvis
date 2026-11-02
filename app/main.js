@@ -668,6 +668,30 @@ ipcMain.handle('custom:clear', (e, slot) => {
   return { ok: true, urls: customUrls() };
 });
 
+/* ------------------------------------------------------------------ wake phrase for any name ("Hey Miku"): keyword spotter in its own thread */
+let kwsWorker = null;
+function kwsDir() { const d = path.join(__dirname, 'kws'); return d.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep); }
+ipcMain.handle('kws:start', async (e, opts) => {
+  try {
+    if (kwsWorker) { try { await kwsWorker.terminate(); } catch {} kwsWorker = null; }
+    const { Worker } = require('worker_threads');
+    kwsWorker = new Worker(path.join(__dirname, 'kws-worker.js'));
+    const ready = new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('wake listener took too long to start')), 20000);
+      kwsWorker.on('message', m => {
+        if (m.type === 'ready') { clearTimeout(t); res(m.lines); }
+        else if (m.type === 'hit') send('kws:hit', m.keyword);
+        else if (m.type === 'error') { clearTimeout(t); rej(new Error(m.error)); send('kws:error', m.error); }
+      });
+      kwsWorker.on('error', err => { clearTimeout(t); rej(err); });
+    });
+    kwsWorker.postMessage({ type: 'start', dir: kwsDir(), phrases: (opts && opts.phrases) || [], threshold: opts && opts.threshold });
+    return { ok: true, lines: await ready };
+  } catch (err) { try { kwsWorker && kwsWorker.terminate(); } catch {} kwsWorker = null; return { ok: false, error: err.message }; }
+});
+ipcMain.on('kws:feed', (e, samples) => { if (kwsWorker) kwsWorker.postMessage({ type: 'feed', samples }); });
+ipcMain.handle('kws:stop', async () => { if (kwsWorker) { try { await kwsWorker.terminate(); } catch {} kwsWorker = null; } return true; });
+
 /* ------------------------------------------------------------------ app icon: the user's own picture (stays on this PC)
    Used for the window, taskbar and tray, and written into the Start-menu and desktop shortcuts. */
 function appIconImage() {

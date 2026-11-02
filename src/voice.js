@@ -136,6 +136,7 @@ function processFrame(f) {
   V.level = Math.min(1, rms * 18); V.onLevel && V.onLevel(V.level);
   recent.push(f); if (recent.length > 19) recent.shift();
   if (wakeOn) feedWake(f);
+  if (V.frameTap) V.frameTap(f);                       // the "Hey <name>" listener hears everything, even while speaking
   const muted = V.speaking || performance.now() < mutedUntil;
   if (!armed || muted) {
     if (!recording) noise = noise * 0.98 + Math.min(rms, 0.03) * 0.02;
