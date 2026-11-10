@@ -1,4 +1,6 @@
-## M.I.K.U 1.20.0: steadier custom voice
+## M.I.K.U 1.21.0: wake-phrase fixes
 
-- **The custom voice stays the same from sentence to sentence.** Before, the voice engine rolled a new random seed for every sentence, so the voice drifted and could sound like several different people. It now uses one fixed seed every time, like your original test script.
-- **No more mixing voices within one reply.** If the custom voice isn't ready (for example, it's still loading after launch), the whole reply uses your other voice instead of switching back and forth. The next reply tries the custom voice again.
+- **Wakes more reliably:** the detector now also listens for spellings of how the name actually sounds (for Miku: "Mee-koo", "Mikoo"), so normal speech matches better.
+- **Gentler sensitivity:** 100% sensitivity is no longer extreme, so random wake-ups should stop.
+- **Windows-safe model loading:** the detector now opens its files the way the speech runtime expects on Windows.
+- **Wake log:** the detector records what it's doing in `wake-log.txt` in the app's data folder (when it starts, when it hears the phrase, and any errors), which makes problems easy to track down.
