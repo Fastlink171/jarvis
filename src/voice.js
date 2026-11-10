@@ -228,7 +228,9 @@ function speak(text, opts = {}) {
     parts.forEach((p, i) => {
       const item = { text: p, opts, done: i === parts.length - 1 ? resolve : null, gen: genId };
       // start rendering right away, while earlier sentences are still playing — no gaps between sentences
-      if (opts.engine === 'custom') item.audioP = synthCustom(item).catch(e => { customFailed(e); return V.voiceReady ? synth(item).catch(() => null) : null; });
+      // the custom voice server is down or failed to start: say so (exact error) and stay quiet rather than quietly
+      // switching to another voice; other one-off errors (a bad sentence) still fall back for that reply
+      if (opts.engine === 'custom') item.audioP = synthCustom(item).catch(e => { customFailed(e); if (noFallback) return SKIP; return V.voiceReady ? synth(item).catch(() => null) : null; });
       else if (opts.engine !== 'windows' && V.voiceReady) item.audioP = synth(item).catch(e => { V.log('voice error: ' + e.message); return null; });
       queue.push(item);
     });
@@ -245,7 +247,8 @@ async function runQueue() {
     try {
       if (item.audioP) {
         const audio = await item.audioP;
-        if (audio && item.gen === genId) await play(audio);
+        if (audio === SKIP) { /* custom voice unavailable: the error is already shown */ }
+        else if (audio && item.gen === genId) await play(audio);
         else if (!audio && item.gen === genId) await speakWindows(item.text, item.opts);
       } else await speakWindows(item.text, item.opts);
     } catch (e) { V.log('voice error: ' + e.message); try { await speakWindows(item.text, item.opts); } catch {} }
@@ -254,7 +257,7 @@ async function runQueue() {
   V.currentText = '';
   qRunning = false; setSpeaking(false);
   // reply finished (nothing more queued for a moment): the next reply tries the custom voice again
-  clearTimeout(stickyTimer); if (stickyFallback) stickyTimer = setTimeout(() => { if (!qRunning && !queue.length) stickyFallback = false; }, 2500);
+  clearTimeout(stickyTimer); if (stickyFallback) stickyTimer = setTimeout(() => { if (!qRunning && !queue.length) stickyFallback = noFallback = false; }, 2500);
 }
 const synthCache = new Map();
 function synth(item) {
@@ -272,7 +275,8 @@ function synth(item) {
 // Custom trained voice: a local TTS server reached through the main process (app/tts.js), one sentence at a time and
 // in order — it renders a whole sentence before answering. If it fails, the sentence falls back to Kokoro or Windows.
 // Once a sentence has fallen back, the rest of that reply stays on the fallback voice too, so one reply never mixes voices.
-let customChain = Promise.resolve(), ttsSeq = 0, lastCustomErr = '', lastCustomErrAt = 0, stickyFallback = false, stickyTimer = 0;
+let customChain = Promise.resolve(), ttsSeq = 0, lastCustomErr = '', lastCustomErrAt = 0, stickyFallback = false, stickyTimer = 0, noFallback = false;
+const SKIP = { skip: true };
 function synthCustom(item) {
   const p = customChain.then(async () => {
     if (item.gen !== genId) return null;                      // stopped while waiting its turn
@@ -291,8 +295,9 @@ function synthCustom(item) {
 function customFailed(e) {
   stickyFallback = true; clearTimeout(stickyTimer);
   if (e.code === 'sticky') return;
+  noFallback = e.code === 'startfail' || e.code === 'offline' || e.code === 'starting';
   const now = Date.now(); V.customError = e.message;
-  if (e.message !== lastCustomErr || now - lastCustomErrAt > 30000) { V.log(e.message + ' — using the fallback voice'); V.onCustomError && V.onCustomError(e); }
+  if (e.message !== lastCustomErr || now - lastCustomErrAt > 30000) { V.log('custom voice: ' + e.message + (noFallback ? ' — not speaking this reply (see logs\\tts-server.log)' : ' — using the fallback voice for this reply')); V.onCustomError && V.onCustomError(e); }
   lastCustomErr = e.message; lastCustomErrAt = now;
 }
 function prepare(texts, opts = {}) { return Promise.all(texts.map(text => synth({ text, opts }).catch(() => null))); }
@@ -328,7 +333,7 @@ function stopSpeaking() {
   try { playing && playing.stop(); } catch {}
   try { speechSynthesis.cancel(); } catch {}
   try { window.jarvis && window.jarvis.tts && window.jarvis.tts.abort(null); } catch {}
-  stickyFallback = false; clearTimeout(stickyTimer);
+  stickyFallback = noFallback = false; clearTimeout(stickyTimer);
   setSpeaking(false);
 }
 

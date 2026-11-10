@@ -289,6 +289,7 @@ J.on('kws:hit', () => {
   onWakeWord(1, talking);
 });
 J.on('kws:error', e => event('wake-phrase detector: ' + e));
+J.on('tts:event', m => { event('voice server: ' + m); if (/^voice server (ready|is back|already running)/.test(m) && V && V.customError) { V.customError = ''; syncVoiceUi(); } });
 const ACKS = ['Yes, sir?', 'Sir?', 'At your service.', 'Go ahead, sir.'];
 const ACKS2 = ['Yes?', 'I\'m here!', 'Hm?', 'Go ahead!'];
 const ackList = () => isJarvis() ? ACKS : ACKS2;
@@ -1340,7 +1341,7 @@ function showCustom(r){
   $('#customState').textContent = r.ok ? 'RUNNING' : r.starting ? 'STARTING' : 'OFF';
   $('#customDir').textContent = r.dir ? r.dir : 'Voice folder not found yet';
   $('#customDir').title = r.dir || '';
-  $('#customTxt').textContent = r.ok ? '' : r.error ? 'Problem: ' + r.error + '.' : '';
+  $('#customTxt').textContent = r.ok ? '' : r.error ? 'Problem: ' + r.error + (r.log ? ' (full details: ' + r.log + ')' : '') : '';
   syncVoiceUi();
 }
 async function checkCustomVoice(){
@@ -1543,7 +1544,7 @@ function wire(){
   $('#kpitch').oninput = e => { S.kpitch = +e.target.value; store.set('kpitch', S.kpitch); syncVoiceUi(); };
   $('#voicePrev').onclick = () => { stopVoice(); speak(pick(['Hello. This is how I sound now.', 'Ready when you are. What are we doing today?', 'All systems online. How do I sound?'])); };
   $('#voiceFolder').onclick = () => J.voices.openFolder();
-  $('#customCheck').onclick = async () => { await J.tts.stop(); checkCustomVoice(); };
+  $('#customCheck').onclick = async () => { await J.tts.stop(true); checkCustomVoice(); };
   $('#customPick').onclick = async () => { const r = await J.tts.pickDir(S.customUrl); if (r.canceled) return; showCustom(r); if (!r.ok) $('#customTxt').textContent = 'That folder won’t work: ' + r.error + '.'; };
   J.voices.list().then(v => { myVoices = v || []; fillVoiceSelect(); }).catch(() => {});
   $('#voiceReset').onclick = () => { Object.assign(S, { voice:'bm_george', mixVoice:'', mixAmt:0, kpitch:1, rate:1, ttsEngine:'' }); ['voice','mixVoice','mixAmt','kpitch','rate','ttsEngine'].forEach(k => store.set(k, S[k])); $('#rate').value = 1; $('#rateV').textContent = '1.00'; fillVoiceSelect(); };

@@ -829,50 +829,91 @@ ipcMain.handle('voices:openFolder', () => shell.openPath(voicesDir()));
 
 /* ------------------------------------------------------------------ custom trained voice: a local TTS server on this PC (see tts.js) */
 const tts = require('./tts');
-// The app runs the voice engine itself (hidden), from the voice folder — no window to keep open.
-const { createHost, findEngine, search: findVoiceFolder } = require('./ttshost');
-const ttsHost = createHost({ log: m => console.info('[tts]', m) });
+// The app manages the voice server itself: it reuses one that is already answering, otherwise launches your
+// experimental-trained-tts\Start.ps1 (hidden), waits for it to be ready, and restarts it if it crashes.
+// Log: %APPDATA%\Jarvis\logs\tts-server.log
+const { createHost, findEngine, findStartScript, search: findVoiceFolder } = require('./ttshost');
+const ttsLogFile = () => path.join(app.getPath('userData'), 'logs', 'tts-server.log');
+const ttsHost = createHost({
+  log: m => { console.info('[tts]', m); send('tts:event', m); },
+  logFile: ttsLogFile(), pidFile: path.join(app.getPath('userData'), 'tts-server.pid'),
+  readyTimeoutMs: Math.max(30, Math.min(900, +prefs.ttsReadyTimeoutSec || 240)) * 1000
+});
+const ttsRoots = () => {
+  const docs = (() => { try { return app.getPath('documents'); } catch { return path.join(os.homedir(), 'Documents'); } })();
+  return [path.join(docs, 'Codex'), path.join(app.getPath('userData'), 'tts'), path.join(os.homedir(), 'Downloads'), docs, os.homedir()];
+};
 function ttsDir() {
   if (prefs.ttsDir && findEngine(prefs.ttsDir).ok) return prefs.ttsDir;
-  const docs = (() => { try { return app.getPath('documents'); } catch { return path.join(os.homedir(), 'Documents'); } })();
-  const found = findVoiceFolder([path.join(docs, 'Codex'), path.join(app.getPath('userData'), 'tts'), path.join(os.homedir(), 'Downloads'), docs], 5);
+  const found = findVoiceFolder(ttsRoots().slice(0, 4), 5);
   if (found) { prefs.ttsDir = found; savePrefs(); }
   return found || prefs.ttsDir || '';
 }
+// experimental-trained-tts\Start.ps1: remembered as ttsScript in prefs.json once found (you can also set it there by hand)
+let ttsScriptMiss = 0;
+function ttsScript() {
+  if (prefs.ttsScript && fs.existsSync(prefs.ttsScript)) return prefs.ttsScript;
+  if (Date.now() - ttsScriptMiss < 60000) return '';          // searched a moment ago: don't walk the disk again yet
+  const found = findStartScript(prefs.ttsDir || ttsDir(), ttsRoots());
+  if (!found) { ttsScriptMiss = Date.now(); ttsHost.log('experimental-trained-tts\\Start.ps1 not found under Documents, Downloads or your user folder (set "ttsScript" in prefs.json to point at it)'); }
+  if (found) { prefs.ttsScript = found; savePrefs(); ttsHost.log('found ' + found); }
+  return found || '';
+}
+// the custom voice is in use: remember its address so the server is managed from launch next time
+const ttsManage = url => { const u = url || tts.DEFAULT_URL; if (prefs.ttsManaged !== u) { prefs.ttsManaged = u; savePrefs(); } ttsWatch(); };
+const ttsEnsure = url => ttsHost.ensure(ttsDir(), url || prefs.ttsManaged || tts.DEFAULT_URL, ttsScript());
+let ttsWatching = false, ttsLastFail = null;
+function ttsWatch() {
+  if (ttsWatching) return; ttsWatching = true;
+  ttsHost.supervise(() => prefs.ttsManaged || null, () => ttsEnsure(prefs.ttsManaged));
+}
 const ttsStatus = async (url, start) => {
-  const dir = ttsDir();
-  const st = start ? await ttsHost.ensure(dir, url) : { ...ttsHost.state(), running: (await tts.ping(url, 1500)).ok };
-  return { ok: !!st.running, ours: !!st.ours, starting: !!st.starting, error: st.running ? '' : (st.error || (dir ? '' : 'voice folder not found — press CHOOSE FOLDER')), dir };
+  if (start) { ttsHost.resetWatch(); ttsLastFail = null; }
+  const st = start ? await ttsEnsure(url) : { ...ttsHost.state(), running: (await tts.ping(url, 1500)).ok };
+  if (start && !st.running) ttsLastFail = { at: Date.now(), error: st.error };
+  const dir = prefs.ttsDir || '';
+  return { ok: !!st.running, ours: !!st.ours, starting: !!st.starting, error: st.running ? '' : (st.error || ''), dir, script: prefs.ttsScript || '', log: ttsLogFile() };
 };
 ipcMain.handle('tts:speak', async (e, id, text, opts) => {
   opts = opts || {};
   const once = async () => { const wav = await tts.speak(id, text, opts); return { ok: true, wav: new Uint8Array(wav.buffer, wav.byteOffset, wav.byteLength) }; };
   try { return await once(); }
   catch (err) {
-    if (err.code === 'offline' && ttsDir()) {
-      // not running: start it, but don't hold the reply for long — this sentence uses the fallback voice if it's still loading
-      const up = ttsHost.ensure(ttsDir(), opts.url);
-      const st = await Promise.race([up, new Promise(r => setTimeout(() => r(null), 15000))]);
-      if (st && st.running) { try { return await once(); } catch (e2) { err = e2; } }
-      else if (!st) err = Object.assign(new Error('voice engine is still starting up'), { code: 'starting' });
-      else err = Object.assign(new Error(st.error || err.message), { code: 'offline' });
+    if (err.code === 'offline') {
+      // not answering: don't relaunch on every sentence right after a failed start — report that exact failure
+      if (ttsLastFail && Date.now() - ttsLastFail.at < 60000) return { ok: false, error: 'voice server failed to start: ' + ttsLastFail.error, code: 'startfail' };
+      ttsManage(opts.url);
+      // wait for it to be fully ready (or for the start to fail) before synthesizing
+      const st = await ttsEnsure(opts.url);
+      if (st.running) { try { return await once(); } catch (e2) { err = e2; } }
+      else { ttsLastFail = { at: Date.now(), error: st.error }; return { ok: false, error: 'voice server failed to start: ' + st.error, code: 'startfail' }; }
     }
+    if (err.code !== 'cancelled') ttsHost.log('synthesis error: ' + err.message);
     return { ok: false, error: err.message, code: err.code || 'error' };
   }
 });
 ipcMain.handle('tts:abort', (e, id) => { if (id == null) tts.abortAll(); else tts.abort(id); });
 ipcMain.handle('tts:ping', (e, url) => ttsStatus(url, false).catch(err => ({ ok: false, error: err.message })));
-ipcMain.handle('tts:start', (e, url) => ttsStatus(url, true).catch(err => ({ ok: false, error: err.message })));
-ipcMain.handle('tts:stop', () => { ttsHost.stop(); return true; });
+ipcMain.handle('tts:start', (e, url) => { ttsManage(url); return ttsStatus(url, true).catch(err => ({ ok: false, error: err.message })); });
+// switching away from the custom voice: stop managing it (and stop the server only if M.I.K.U. started it)
+ipcMain.handle('tts:stop', (e, keepManaged) => { if (!keepManaged && prefs.ttsManaged) { delete prefs.ttsManaged; savePrefs(); } ttsHost.stop(); return true; });
+ipcMain.handle('tts:openLog', () => shell.openPath(fs.existsSync(ttsLogFile()) ? ttsLogFile() : path.dirname(ttsLogFile())));
 ipcMain.handle('tts:pickDir', async (e, url) => {
   const r = await dialog.showOpenDialog(win, { title: 'Choose your trained voice folder (the one with "models" and "runtime" inside)', properties: ['openDirectory'] });
   if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
   const eng = findEngine(r.filePaths[0]);
   if (!eng.ok) return { ok: false, error: eng.error, dir: r.filePaths[0] };
-  prefs.ttsDir = r.filePaths[0]; savePrefs(); ttsHost.stop();
+  prefs.ttsDir = r.filePaths[0]; if (prefs.ttsScript && !fs.existsSync(prefs.ttsScript)) delete prefs.ttsScript; savePrefs(); ttsHost.stop();
+  ttsManage(url);
   return ttsStatus(url, true);
 });
-app.on('will-quit', () => ttsHost.stop());
+// on launch: if the custom voice is in use, check the server right away and start it if it's offline
+app.whenReady().then(() => {
+  if (!prefs.ttsManaged) return;
+  ttsWatch();
+  setTimeout(() => ttsStatus(prefs.ttsManaged, true).catch(err => ttsHost.log('START FAILED: ' + err.message)), 1500);
+});
+app.on('will-quit', () => ttsHost.shutdown());
 
 /* ------------------------------------------------------------------ your data: kept safe across updates
    Everything Jarvis knows about you lives in %APPDATA%\Jarvis, which installs and updates never touch.
