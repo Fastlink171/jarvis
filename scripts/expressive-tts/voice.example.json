@@ -1,0 +1,5 @@
+{
+  "python": "C:/path/to/venv/Scripts/python.exe",
+  "modelPath": "C:/path/to/Qwen3-TTS-12Hz-0.6B-Base",
+  "referenceText": "Exact transcript of reference.wav"
+}

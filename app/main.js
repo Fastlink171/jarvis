@@ -852,6 +852,7 @@ function ttsDir() {
 // experimental-trained-tts\Start.ps1: remembered as ttsScript in prefs.json once found (you can also set it there by hand)
 let ttsScriptMiss = 0;
 function ttsScript() {
+  if (prefs.ttsScript === '') return ''; // An explicitly selected runtime folder starts directly.
   if (prefs.ttsScript && fs.existsSync(prefs.ttsScript)) return prefs.ttsScript;
   if (Date.now() - ttsScriptMiss < 60000) return '';          // searched a moment ago: don't walk the disk again yet
   const found = findStartScript(prefs.ttsDir || ttsDir(), ttsRoots());
@@ -861,7 +862,10 @@ function ttsScript() {
 }
 // the custom voice is in use: remember its address so the server is managed from launch next time
 const ttsManage = url => { const u = url || tts.DEFAULT_URL; if (prefs.ttsManaged !== u) { prefs.ttsManaged = u; savePrefs(); } ttsWatch(); };
-const ttsEnsure = url => ttsHost.ensure(ttsDir(), url || prefs.ttsManaged || tts.DEFAULT_URL, ttsScript());
+const ttsEnsure = url => {
+  const script = ttsScript();
+  return ttsHost.ensure(script ? prefs.ttsDir : ttsDir(), url || prefs.ttsManaged || tts.DEFAULT_URL, script);
+};
 let ttsWatching = false, ttsLastFail = null;
 function ttsWatch() {
   if (ttsWatching) return; ttsWatching = true;
@@ -871,7 +875,7 @@ const ttsStatus = async (url, start) => {
   if (start) { ttsHost.resetWatch(); ttsLastFail = null; }
   const st = start ? await ttsEnsure(url) : { ...ttsHost.state(), running: (await tts.ping(url, 1500)).ok };
   if (start && !st.running) ttsLastFail = { at: Date.now(), error: st.error };
-  const dir = prefs.ttsDir || '';
+  const dir = prefs.ttsScript ? path.dirname(prefs.ttsScript) : (prefs.ttsDir || '');
   return { ok: !!st.running, ours: !!st.ours, starting: !!st.starting, error: st.running ? '' : (st.error || ''), dir, script: prefs.ttsScript || '', log: ttsLogFile() };
 };
 ipcMain.handle('tts:speak', async (e, id, text, opts) => {
@@ -896,14 +900,23 @@ ipcMain.handle('tts:abort', (e, id) => { if (id == null) tts.abortAll(); else tt
 ipcMain.handle('tts:ping', (e, url) => ttsStatus(url, false).catch(err => ({ ok: false, error: err.message })));
 ipcMain.handle('tts:start', (e, url) => { ttsManage(url); return ttsStatus(url, true).catch(err => ({ ok: false, error: err.message })); });
 // switching away from the custom voice: stop managing it (and stop the server only if M.I.K.U. started it)
-ipcMain.handle('tts:stop', (e, keepManaged) => { if (!keepManaged && prefs.ttsManaged) { delete prefs.ttsManaged; savePrefs(); } ttsHost.stop(); return true; });
+ipcMain.handle('tts:stop', async (e, keepManaged) => { if (!keepManaged && prefs.ttsManaged) { delete prefs.ttsManaged; savePrefs(); } await ttsHost.stop(); return true; });
 ipcMain.handle('tts:openLog', () => shell.openPath(fs.existsSync(ttsLogFile()) ? ttsLogFile() : path.dirname(ttsLogFile())));
 ipcMain.handle('tts:pickDir', async (e, url) => {
-  const r = await dialog.showOpenDialog(win, { title: 'Choose your trained voice folder (the one with "models" and "runtime" inside)', properties: ['openDirectory'] });
+  const r = await dialog.showOpenDialog(win, { title: 'Choose a voice folder with Start.ps1 or a KoboldCpp runtime', properties: ['openDirectory'] });
   if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
-  const eng = findEngine(r.filePaths[0]);
-  if (!eng.ok) return { ok: false, error: eng.error, dir: r.filePaths[0] };
-  prefs.ttsDir = r.filePaths[0]; if (prefs.ttsScript && !fs.existsSync(prefs.ttsScript)) delete prefs.ttsScript; savePrefs(); ttsHost.stop();
+  const dir = r.filePaths[0];
+  const script = path.join(dir, 'Start.ps1');
+  const hasScript = fs.statSync(script, { throwIfNoEntry: false })?.isFile();
+  if (!hasScript) {
+    const eng = findEngine(dir);
+    if (!eng.ok) return { ok: false, error: eng.error, dir };
+  }
+  prefs.ttsDir = dir;
+  prefs.ttsScript = hasScript ? script : '';
+  ttsScriptMiss = 0;
+  savePrefs();
+  await ttsHost.stop();
   ttsManage(url);
   return ttsStatus(url, true);
 });

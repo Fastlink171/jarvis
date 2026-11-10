@@ -133,14 +133,22 @@ function createHost({
   const writePid = o => { if (pidFile) try { fs.writeFileSync(pidFile, JSON.stringify(o)); } catch {} };
   const clearPid = pid => { if (!pidFile) return; const o = readPid(); if (!o || !pid || o.pid === pid) try { fs.unlinkSync(pidFile); } catch {} };
 
-  function killTree(pid) {
-    try { if (platform === 'win32') spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); else process.kill(pid, 'SIGKILL'); } catch {}
+  async function killTree(pid) {
+    if (!pid) return;
+    if (platform === 'win32') {
+      await new Promise(resolve => execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, timeout: 5000 }, () => resolve()));
+    } else {
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
   }
-  function stop() {
+  async function stop() {
     const p = proc; proc = null; state.running = false; state.ours = false;
     if (!p || p.exitCode !== null) return;
     say('stopping the voice server M.I.K.U. started (pid ' + p.pid + ')');
-    p._stopping = true; killTree(p.pid); clearPid(p.pid);
+    p._stopping = true;
+    await killTree(p.pid);
+    clearPid(p.pid);
+    if (starting) await starting;
   }
 
   // Something already starting/holding the server? Returns why (and launching another copy is skipped), or ''.
@@ -155,7 +163,7 @@ function createHost({
       const p = (await processes(platform)).find(x => x.pid === prev.pid);
       if (platform !== 'win32' || (p && /^(powershell|pwsh|koboldcpp)/i.test(p.name))) {
         say('voice server from an earlier run (pid ' + prev.pid + ') never answered — closing it before starting a fresh one');
-        killTree(prev.pid); await sleep(1500);
+        await killTree(prev.pid);
       }
       clearPid(prev.pid);
     }
@@ -170,6 +178,7 @@ function createHost({
     let exitInfo = null; if (p) p.once('exit', (code, sig) => { exitInfo = { code, sig }; });
     let toldExit0 = false;
     while (Date.now() - t0 < readyTimeoutMs) {
+      if (p?._stopping) return { ...state, running: false, error: 'Voice server startup canceled' };
       if ((await tts.ping(url, 1500)).ok) {
         state.running = true; state.error = ''; state.ours = !!(p && p.exitCode === null) || state.ours;
         say('voice server ready at ' + new URL(url).host + ' (' + Math.round((Date.now() - t0) / 1000) + ' s)');

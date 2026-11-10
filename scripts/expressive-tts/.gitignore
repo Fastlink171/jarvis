@@ -1,0 +1,4 @@
+voice.json
+*.wav
+cache/
+__pycache__/

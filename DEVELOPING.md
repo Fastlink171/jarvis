@@ -11,6 +11,7 @@
 - `app/tts.js` – client for a custom TTS server on this PC (OpenAI-style `POST /v1/audio/speech` → WAV, default `http://127.0.0.1:5003`). Local addresses only, 30 s timeout, cancellable. Used through the `tts:*` IPC calls.
 - `app/ttshost.js` – manages the custom voice server: reuses one already answering at the configured address, otherwise launches `experimental-trained-tts\Start.ps1` hidden (falls back to the KoboldCpp exe in the voice folder if no script is found), waits until it answers, never starts a duplicate (in-flight lock, port check, pid file, running koboldcpp check), and a watchdog restarts it after a crash (3 s / 10 s / 30 s, then gives up). Script path saved as `ttsScript`, managed address as `ttsManaged` in prefs.json; start timeout `ttsReadyTimeoutSec` (default 240). Log: `%APPDATA%\Jarvis\logs\tts-server.log`.
 - `scripts/build.js` – produces `app/renderer/ui.js`, `voice.js` and `ort/` (all git-ignored).
+- `scripts/expressive-tts/` – optional local Qwen3-TTS server for reference-based speech. Follow its [setup instructions](scripts/expressive-tts/README.md) to select it in Voice settings.
 
 ## Releasing an update
 1. Make the change.
