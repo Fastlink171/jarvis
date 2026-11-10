@@ -48,7 +48,7 @@ const S = {
   screen:store.get('screen', true), gameMode:store.get('gameMode', true), gaming:false, gameApp:'', listening:false, thinking:false, wake:store.get('wake', false), awaitingUntil:0,
   pending:null, history:[], run:0, chatId:null,
   confirm:store.get('confirm', true), autoSafe:store.get('autoSafe', true),
-  voice:store.get('voice', 'bm_george'), rate:store.get('rate', 1), kpitch:store.get('kpitch', 1), mixVoice:store.get('mixVoice', ''), mixAmt:store.get('mixAmt', 0), ttsEngine:store.get('ttsEngine', ''), customUrl:store.get('customUrl', 'http://127.0.0.1:5003/v1/audio/speech'), ear:store.get('ear', 'whisper-base.en'), sens:store.get('sens', 0.5),
+  voice:store.get('voice', 'bm_george'), rate:store.get('rate', 1), kpitch:store.get('kpitch', 1), mixVoice:store.get('mixVoice', ''), mixAmt:store.get('mixAmt', 0), ttsEngine:store.get('ttsEngine', ''), customUrl:store.get('customUrl', 'http://127.0.0.1:5003/v1/audio/speech'), ear:store.get('ear', 'whisper-base.en'), earGpu:store.get('earGpu', false), sens:store.get('sens', 0.5),
   memories:store.get('memories', []), tasks:store.get('tasks', []), timers:store.get('timers', []),
   counts:store.get('counts', { total:0, cmds:0, days:{} }), session:0,
   city:store.get('city', null), celsius:store.get('celsius', false), weather:null,
@@ -867,6 +867,7 @@ async function think(text){
   S.thinking = true; setState();
   const t0 = performance.now();
   try {
+    let crashRetried = false;
     for (let step = 0; step < 10; step++) {
       let row = null, spoken = '', said = '', thinkEl = null, tn = null;
       const r = await chatOnce(runId, (txt, thoughts) => {
@@ -890,6 +891,13 @@ async function think(text){
       if (!r.ok) {
         if (r.error === 'aborted') return;
         event('ai error: ' + r.error);
+        // the AI engine crashed on the graphics card (e.g. "ROCm error"): wait for it to come back and try once more
+        if (!crashRetried && /rocm|cuda|vulkan|launch failure|terminated|exit status|runner|status code 500|\b500\b|EOF/i.test(r.error)) {
+          crashRetried = true; if (row) row.remove();
+          addMsg('sys', 'The AI engine crashed on the graphics card — restarting it and trying again…');
+          for (let i = 0; i < 30; i++) { await sleep(1000); const v = await J.ollama.version().catch(() => null); if (v && (v.ok || v.version)) break; }
+          await sleep(1500); step--; continue;
+        }
         if (/not found/i.test(r.error)) return reply(`I can’t find my brain model ${S.model}, sir. Open Settings to pick or download one.`);
         if (/fetch failed|ECONNREFUSED|connect/i.test(r.error)) { S.ollama = false; updateBrainChip(); J.ollama.start(); return reply('I’ve lost contact with Ollama, sir. I’m trying to restart it.'); }
         return reply('Something went wrong in my head, sir: ' + r.error.slice(0, 140));
@@ -1268,7 +1276,7 @@ async function loadVoiceModels(fromSetup){
   if (!V.hearingReady) {
     V.hearingLoading = true; tb('#tbEar', 'LOADING', 'warn');
     if (fromSetup) { $('#voiceProg').classList.add('show'); }
-    tasks.push(V.loadHearing(S.ear, fromSetup ? progressTracker('#voiceProg i', '#voiceTxt', 'Hearing') : null)
+    tasks.push(V.loadHearing(S.ear, fromSetup ? progressTracker('#voiceProg i', '#voiceTxt', 'Hearing') : null, S.earGpu)
       .then(() => { V.hearingLoading = false; tb('#tbEar', (S.ear.includes('small') ? 'WHISPER S' : 'WHISPER') + ' · ' + V.hearingDevice.toUpperCase(), 'on'); event('hearing ready (' + V.hearingDevice + ')'); if (S.wake && !isJarvis()) setWake(true); })
       .catch(e => { V.hearingLoading = false; tb('#tbEar', 'FAILED', 'off'); event('hearing failed: ' + e.message); throw e; }));
   }
@@ -1545,6 +1553,7 @@ function wire(){
   $('#earSel').value = S.ear; $('#earSel').onchange = e => { S.ear = e.target.value; store.set('ear', S.ear); if (V) { V.hearingReady = false; loadVoiceModels(false); } };
   $('#sens').value = S.sens; const showS = () => $('#sensV').textContent = Math.round(S.sens * 100) + '%'; showS();
   $('#sens').oninput = e => { S.sens = +e.target.value; store.set('sens', S.sens); if (V) { V.sensitivity = S.sens; V.wakeThreshold = 0.75 - 0.45 * S.sens; } showS(); clearTimeout(S.sensT); S.sensT = setTimeout(() => { if (S.wake && !isJarvis()) setWake(true); }, 800); };
+  $('#earGpu').checked = S.earGpu; $('#earGpu').onchange = e => { S.earGpu = e.target.checked; store.set('earGpu', S.earGpu); if (V && V.hearingReady) { V.hearingReady = false; loadVoiceModels(false); } event('hearing on ' + (S.earGpu ? 'graphics card' : 'processor')); };
   $('#autoSafe').checked = S.autoSafe; $('#autoSafe').onchange = e => { S.autoSafe = e.target.checked; store.set('autoSafe', S.autoSafe); };
   $('#confirm').checked = S.confirm; $('#confirm').onchange = e => { S.confirm = e.target.checked; store.set('confirm', S.confirm); };
   $('#themeSel').value = S.theme;

@@ -15,15 +15,16 @@ const post = (m, transfer) => self.postMessage(m, transfer || []);
 
 async function hasGPU() { try { return !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch { return false; } }
 
-async function loadHearing(model, onProgress) {
-  if (asr && asrModel === model) return { device: asr._device };
+async function loadHearing(model, onProgress, gpu) {
+  if (asr && asrModel === model && (gpu || asr._device !== 'webgpu')) return { device: asr._device };
   if (asr) { try { await asr.dispose(); } catch {} asr = null; }
   const id = 'onnx-community/' + model;
   const load = device => pipeline('automatic-speech-recognition', id, {
     device, dtype: device === 'webgpu' ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : 'q8', progress_callback: onProgress
   });
   let device = 'cpu';
-  if (await hasGPU()) { try { asr = await load('webgpu'); device = 'webgpu'; } catch (e) { post({ log: 'hearing: GPU failed, using CPU: ' + e.message }); } }
+  // the graphics card is shared with the AI brain; hearing uses it only when asked (AMD drivers can crash when both run at once)
+  if (gpu && await hasGPU()) { try { asr = await load('webgpu'); device = 'webgpu'; } catch (e) { post({ log: 'hearing: GPU failed, using CPU: ' + e.message }); } }
   if (!asr) asr = await load('wasm');
   asr._device = device; asrModel = model;
   return { device };
@@ -89,7 +90,7 @@ self.onmessage = async ({ data: m }) => {
   try {
     let result, transfer;
     switch (type) {
-      case 'loadHearing': result = await loadHearing(m.model, progress); break;
+      case 'loadHearing': result = await loadHearing(m.model, progress, !!m.gpu); break;
       case 'transcribe': {
         if (!asr) throw new Error('Hearing is not loaded yet.');
         const r = await asr(m.samples, { chunk_length_s: 30, stride_length_s: 5 });

@@ -64,10 +64,10 @@ function feedWake(f) {
 
 
 /* ------------------------------------------------------------ hearing */
-async function loadHearing(model = 'whisper-base.en', onProgress) {
-  if (V.hearingReady && V.hearingModel === model) return true;
-  V.hearingReady = false;
-  const r = await ear('loadHearing', { model }, onProgress);
+async function loadHearing(model = 'whisper-base.en', onProgress, gpu = false) {
+  if (V.hearingReady && V.hearingModel === model && V.hearingGpu === gpu) return true;
+  V.hearingReady = false; V.hearingGpu = gpu;
+  const r = await ear('loadHearing', { model, gpu }, onProgress);
   V.hearingDevice = r.device; V.hearingModel = model; V.hearingReady = true;
   return true;
 }
