@@ -10,7 +10,9 @@ const { parentPort } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
 
-let kws = null, stream = null, vocab = null;
+let kws = null, stream = null, vocab = null, fed = 0, lastStat = Date.now();
+// forward slashes everywhere: the runtime's file layer is happiest with them on Windows
+const fwd = p => p.replace(/\\/g, '/');
 
 function loadVocab(file) {
   return new Map(fs.readFileSync(file, 'utf8').trim().split('\n').map(l => { const [p, s] = l.split('\t'); return [p, +s]; }));
@@ -32,16 +34,17 @@ function encode(text) {
 
 function start(msg) {
   const sherpa = require('sherpa-onnx');
-  const dir = msg.dir;
-  vocab = loadVocab(path.join(dir, 'bpe.vocab'));
+  const dir = fwd(msg.dir);
+  vocab = loadVocab(dir + '/bpe.vocab');
   const thr = Math.max(0.05, Math.min(0.5, msg.threshold || 0.2));
-  const lines = msg.phrases.map((p, i) => { const t = encode(p); return t ? `${t} :2.0 #${thr.toFixed(3)} @k${i}` : ''; }).filter(Boolean);
+  const seen = new Set();
+  const lines = msg.phrases.map((p, i) => { const t = encode(p); if (!t || seen.has(t)) return ''; seen.add(t); return `${t} :2.0 #${thr.toFixed(3)} @k${i}`; }).filter(Boolean);
   if (!lines.length) throw new Error('could not spell the wake phrase');
   kws = sherpa.createKws({
     featConfig: { sampleRate: 16000, featureDim: 80 },
     modelConfig: {
-      transducer: { encoder: path.join(dir, 'encoder.int8.onnx'), decoder: path.join(dir, 'decoder.onnx'), joiner: path.join(dir, 'joiner.int8.onnx') },
-      tokens: path.join(dir, 'tokens.txt'), numThreads: 1, provider: 'cpu', debug: 0
+      transducer: { encoder: dir + '/encoder.int8.onnx', decoder: dir + '/decoder.onnx', joiner: dir + '/joiner.int8.onnx' },
+      tokens: dir + '/tokens.txt', numThreads: 1, provider: 'cpu', debug: 0
     },
     keywords: lines.join('\n')
   });
@@ -53,7 +56,8 @@ parentPort.on('message', msg => {
   try {
     if (msg.type === 'start') { const lines = start(msg); parentPort.postMessage({ type: 'ready', lines }); }
     else if (msg.type === 'feed' && kws && stream) {
-      stream.acceptWaveform(16000, msg.samples);
+      stream.acceptWaveform(16000, msg.samples); fed += msg.samples.length;
+      if (Date.now() - lastStat > 60000) { parentPort.postMessage({ type: 'stat', seconds: Math.round(fed / 16000) }); lastStat = Date.now(); }
       while (kws.isReady(stream)) {
         kws.decode(stream);
         const r = kws.getResult(stream);

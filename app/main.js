@@ -670,6 +670,16 @@ ipcMain.handle('custom:clear', (e, slot) => {
 
 /* ------------------------------------------------------------------ wake phrase for any name ("Hey Miku"): keyword spotter in its own thread */
 let kwsWorker = null;
+// a small log of what the wake detector is doing (%APPDATA%\Jarvis\wake-log.txt), for troubleshooting
+function wakeLog(line) {
+  try {
+    const f = path.join(app.getPath('userData'), 'wake-log.txt');
+    let old = ''; try { old = fs.readFileSync(f, 'utf8'); } catch {}
+    const lines = (old + new Date().toISOString() + '  ' + line + '\n').split('\n').slice(-300).join('\n');
+    fs.writeFileSync(f, lines);
+  } catch {}
+}
+ipcMain.on('kws:log', (e, line) => wakeLog(String(line).slice(0, 300)));
 function kwsDir() { const d = path.join(__dirname, 'kws'); return d.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep); }
 ipcMain.handle('kws:start', async (e, opts) => {
   try {
@@ -679,15 +689,17 @@ ipcMain.handle('kws:start', async (e, opts) => {
     const ready = new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('wake listener took too long to start')), 20000);
       kwsWorker.on('message', m => {
-        if (m.type === 'ready') { clearTimeout(t); res(m.lines); }
-        else if (m.type === 'hit') send('kws:hit', m.keyword);
-        else if (m.type === 'error') { clearTimeout(t); rej(new Error(m.error)); send('kws:error', m.error); }
+        if (m.type === 'ready') { clearTimeout(t); wakeLog('detector started: ' + m.lines.join(' | ')); res(m.lines); }
+        else if (m.type === 'hit') { wakeLog('HEARD wake phrase (' + m.keyword + ')'); send('kws:hit', m.keyword); }
+        else if (m.type === 'stat') wakeLog('listening ok, ' + m.seconds + ' s of mic audio so far');
+        else if (m.type === 'error') { clearTimeout(t); wakeLog('ERROR ' + m.error); rej(new Error(m.error)); send('kws:error', m.error); }
       });
-      kwsWorker.on('error', err => { clearTimeout(t); rej(err); });
+      kwsWorker.on('error', err => { clearTimeout(t); wakeLog('WORKER ERROR ' + (err && err.stack || err)); rej(err); });
     });
+    wakeLog('starting detector from ' + kwsDir() + ' (files: ' + (fs.existsSync(path.join(kwsDir(), 'encoder.int8.onnx')) ? 'present' : 'MISSING') + ')');
     kwsWorker.postMessage({ type: 'start', dir: kwsDir(), phrases: (opts && opts.phrases) || [], threshold: opts && opts.threshold });
     return { ok: true, lines: await ready };
-  } catch (err) { try { kwsWorker && kwsWorker.terminate(); } catch {} kwsWorker = null; return { ok: false, error: err.message }; }
+  } catch (err) { wakeLog('could not start: ' + err.message); try { kwsWorker && kwsWorker.terminate(); } catch {} kwsWorker = null; return { ok: false, error: err.message }; }
 });
 ipcMain.on('kws:feed', (e, samples) => { if (kwsWorker) kwsWorker.postMessage({ type: 'feed', samples }); });
 ipcMain.handle('kws:stop', async () => { if (kwsWorker) { try { await kwsWorker.terminate(); } catch {} kwsWorker = null; } return true; });

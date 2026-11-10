@@ -257,9 +257,12 @@ async function setWake(on){
 let kwsOn = false, kwsBuf = [], kwsN = 0;
 async function startKws(){
   if (!J.kws) return false;
-  const n = aiName(), thr = 0.32 - (S.sens ?? 0.5) * 0.2;          // sensitivity slider: higher = easier to wake
-  const r = await J.kws.start({ phrases: [`hey ${n}`, `hi ${n}`, `okay ${n}`], threshold: thr }).catch(e => ({ ok: false, error: e.message }));
-  if (!r || !r.ok) { event('wake-phrase detector unavailable (' + ((r && r.error) || 'unknown') + ')'); return false; }
+  const n = aiName(), thr = 0.30 - (S.sens ?? 0.5) * 0.12;         // sensitivity slider: higher = easier to wake (0.18 … 0.30)
+  // the name as it's spelled, plus spellings of how it sounds ("Miku" → "Meekoo", "Mikoo"), so the detector matches real speech
+  const forms = [...new Set([n, ...soundSpellings(n)])].slice(0, 4);
+  const phrases = forms.flatMap(f => [`hey ${f}`, `hi ${f}`]).concat([`okay ${n}`]);
+  const r = await J.kws.start({ phrases, threshold: thr }).catch(e => ({ ok: false, error: e.message }));
+  if (!r || !r.ok) { event('wake-phrase detector unavailable (' + ((r && r.error) || 'unknown') + ')'); J.kws.log && J.kws.log('falling back to speech recognition: ' + ((r && r.error) || 'unknown')); return false; }
   try { await V.startMic(); } catch (e) { addMsg('sys', 'Microphone problem: ' + e.message); return false; }
   kwsOn = true; kwsBuf = []; kwsN = 0;
   V.frameTap = f => {                                  // send ~128 ms at a time
@@ -269,11 +272,20 @@ async function startKws(){
   };
   return true;
 }
+function soundSpellings(name){
+  const w = name.toLowerCase().replace(/[^a-z]/g, ''); if (!w) return [];
+  const out = new Set();
+  out.add(w.replace(/i(?=[^aeiou])/g, 'ee').replace(/u$/, 'oo'));      // miku → meekoo
+  out.add(w.replace(/u$/, 'oo'));                                       // miku → mikoo
+  out.add(w.replace(/i(?=[^aeiou])/g, 'ee'));                           // miku → meeku
+  out.delete(w); return [...out].filter(x => x.length > 2);
+}
 async function stopKws(){ if (!kwsOn) return; kwsOn = false; V.frameTap = null; await J.kws.stop().catch(() => {}); }
 J.on('kws:hit', () => {
   if (!S.wake || !kwsOn) return;
   const talking = speaking();
-  if (talking && new RegExp('\\b' + aiName().replace(/[^\w]/g, '') + '\\b', 'i').test(V.currentText || '')) return;   // her own voice saying her name
+  if (talking && new RegExp('\\b' + aiName().replace(/[^\w]/g, '') + '\\b', 'i').test(V.currentText || '')) { J.kws.log && J.kws.log('ignored: she was saying her own name'); return; }   // her own voice saying her name
+  if (wakeBusy || S.listening) { J.kws.log && J.kws.log('ignored: already listening'); }
   onWakeWord(1, talking);
 });
 J.on('kws:error', e => event('wake-phrase detector: ' + e));
