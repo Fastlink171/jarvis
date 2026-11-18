@@ -11,3 +11,4 @@ app/renderer/todo.html
 app/renderer/todo-core.js
 dist-web/
 app/renderer/voices/
+app/renderer/logs.html
