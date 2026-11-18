@@ -307,7 +307,8 @@ ipcMain.handle('ollama:chat', async (e, id, body) => {
       if (m.tool_calls && m.tool_calls.length) toolCalls.push(...m.tool_calls);
       if (j.done) final = j;
     });
-    return { ok: true, content, thinking, tool_calls: toolCalls, eval_count: final && final.eval_count, eval_duration: final && final.eval_duration };
+    const f = final || {};
+    return { ok: true, content, thinking, tool_calls: toolCalls, eval_count: f.eval_count, eval_duration: f.eval_duration, prompt_eval_count: f.prompt_eval_count, prompt_eval_duration: f.prompt_eval_duration, load_duration: f.load_duration, total_duration: f.total_duration };
   } catch (err) { return { ok: false, error: err.name === 'AbortError' ? 'aborted' : err.message }; }
   finally { chats.delete(id); }
 });

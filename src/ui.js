@@ -922,7 +922,7 @@ function trimHistory(){
   while (S.history.length && S.history[0].role !== 'user') S.history.shift();
 }
 function chatBody(messages, withTools){
-  const body = { model: S.model, messages, keep_alive: S.gaming ? '2m' : '30m', options: { num_ctx: S.modelSize > 11e9 ? 8192 : 16384, temperature: 0.5 } };
+  const body = { model: S.model, messages, keep_alive: S.gaming ? '2m' : '4h', options: { num_ctx: S.modelSize > 11e9 ? 8192 : 16384, temperature: 0.5 } };
   if (withTools && S.caps.includes('tools')) body.tools = toolSchemas();
   if (S.caps.includes('thinking')) body.think = /gpt-oss/i.test(S.model) ? (S.deep ? 'high' : 'low') : !!S.deep;
   return body;
@@ -962,13 +962,15 @@ async function think(text){
   lastAI = Date.now(); S.unloaded = false;
   pushUser(text);
   S.thinking = true; setState();
-  const t0 = performance.now();
+  const t0 = performance.now(); perfStart();
   try {
     let crashRetried = false;
     for (let step = 0; step < 10; step++) {
       let row = null, spoken = '', said = '', thinkEl = null, tn = null;
+      if (PERF.cur && PERF.cur.sent == null) PERF.cur.sent = performance.now();
       const r = await chatOnce(runId, (txt, thoughts) => {
         if (runId !== S.run) return;
+        if (PERF.cur && PERF.cur.first == null && txt) PERF.cur.first = performance.now();
         if (thoughts) {
           if (!row) row = addMsg('jarvis', '');
           if (!thinkEl) { thinkEl = document.createElement('div'); thinkEl.className = 'think'; row.lastChild.appendChild(thinkEl); }
@@ -980,10 +982,12 @@ async function think(text){
         tn.textContent = said;
         $('#log').scrollTop = 1e9;
         // speak finished sentences while the rest is still being written
-        const m = said.slice(spoken.length).match(/^[\s\S]*[.!?](?=\s|$)/);
+        let m = said.slice(spoken.length).match(/^[\s\S]*[.!?](?=\s|$)/);
+        if (!m && !spoken && said.length > 48) m = said.match(/^[\s\S]{24,}?[,;:\u2014](?=\s)/);      // first words out early: speak up to a comma
         if (m && m[0].trim().length > 2) { spoken += m[0]; speak(m[0]); }
       });
       if (runId !== S.run) return;
+      if (PERF.cur && r.ok) { const c = PERF.cur, ns = x => (x || 0) / 1e6; c.steps++; c.load += ns(r.load_duration); c.promptTok += r.prompt_eval_count || 0; c.promptMs += ns(r.prompt_eval_duration); c.genTok += r.eval_count || 0; c.genMs += ns(r.eval_duration); }
       if (thinkEl) thinkEl.remove();
       if (!r.ok) {
         if (r.error === 'aborted') return;
@@ -1024,7 +1028,13 @@ async function think(text){
     lastAI = Date.now();
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
     event(`answered in ${secs}s`);
-  } finally { if (runId === S.run) { S.thinking = false; setState(); } }
+  } finally {
+    if (runId === S.run) { S.thinking = false; setState(); }
+    // wait a moment for her voice to start, then log the timings
+    const pc = PERF.cur; let waited = 0;
+    const done = () => { if (PERF.cur !== pc) return; if (pc && pc.audio == null && waited < 15000) { waited += 250; return setTimeout(done, 250); } perfFinish(); };
+    setTimeout(done, 250);
+  }
 }
 const safeJSON = s => { try { return JSON.parse(s); } catch { return {}; } };
 function pushUser(text){ S.history.push({ role:'user', content:text }); trimHistory(); }
@@ -1147,6 +1157,31 @@ const SITES = { youtube:'https://www.youtube.com', google:'https://www.google.co
 const N = '(\\d+(?:\\.\\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|forty-five|sixty|ninety|half)';
 const U = '(seconds?|secs?|minutes?|mins?|hours?|hrs?)';
 
+/* ---- speed: how long each reply takes, from the moment you finish speaking to her first word out loud */
+const PERF = { cur: null, last: null, hist: [] };
+function perfStart(){ PERF.cur = { t0: performance.now(), stt: V && V.lastSttFresh ? V.lastSttMs : null, sent: null, first: null, audio: null, steps: 0, load: 0, promptTok: 0, promptMs: 0, genTok: 0, genMs: 0 }; if (V) V.lastSttFresh = false; }
+function perfFinish(){
+  const p = PERF.cur; if (!p || p.sent == null) return; PERF.cur = null;
+  p.total = performance.now() - p.t0;
+  PERF.last = p; PERF.hist.push(p); PERF.hist = PERF.hist.slice(-20);
+  const f = ms => ms == null ? '—' : ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(1) + ' s';
+  const tps = p.genMs ? Math.round(p.genTok / (p.genMs / 1000)) : 0;
+  const parts = [];
+  if (p.stt != null) parts.push('hearing ' + f(p.stt));
+  parts.push('first word ' + f(p.first != null ? p.first - p.t0 : null));
+  if (p.load > 300) parts.push('brain load ' + f(p.load));
+  parts.push('reading ' + f(p.promptMs) + ' (' + p.promptTok + ' tok)');
+  if (tps) parts.push('writing ' + tps + ' tok/s');
+  if (p.audio != null) parts.push('voice starts ' + f(p.audio - p.t0));
+  event('speed: ' + parts.join(' · '));
+  const chip = $('#tbSpeed'); if (chip) { const v = p.audio != null ? p.audio - p.t0 : p.first != null ? p.first - p.t0 : p.total; chip.querySelector('b').textContent = f(v); chip.classList.toggle('warn', v > 6000); chip.classList.toggle('on', v <= 6000); chip.title = 'Last reply: ' + parts.join(' · '); }
+}
+function perfReport(){
+  const p = PERF.last; if (!p) return 'I haven’t timed a reply yet. Ask me something and then ask again.';
+  const s = ms => (ms / 1000).toFixed(1) + ' seconds';
+  const tps = p.genMs ? Math.round(p.genTok / (p.genMs / 1000)) : 0;
+  return `Last reply: my first word came after ${s(p.first - p.t0)}${p.audio != null ? `, and I started talking after ${s(p.audio - p.t0)}` : ''}. Reading your message took ${s(p.promptMs)}${tps ? `, and I wrote at about ${tps} tokens a second` : ''}${p.load > 300 ? `. Loading my brain took ${s(p.load)}, which is the slow part` : ''}${p.stt != null ? `. Understanding your voice took ${s(p.stt)}` : ''}.`;
+}
 async function handle(text){
   if (!text) return;
   if (S.thinking || speaking()) interrupt();
@@ -1174,6 +1209,7 @@ async function handle(text){
   if (!/^push (?:again|it|that)$/.test(t) && (m = text.replace(/[.!?]+$/, '').trim().match(/^(?:push|start (?:logging|timing|working on)|log start)\s+(.+?)(?: now| please)?$/i))) { const r = logsPush(m[1]); return reply(r.error || [r.finished && `Logged ${r.finished.title}, ${r.finished.minutes} minutes.`, r.started && `Timing ${r.started} from ${l12(r.at)}.`].filter(Boolean).join(' ')); }
   if (/^(?:open|show|bring up)(?: me)? (?:my |the )?(?:logs?|planner log|work log)$/.test(t)) { openLogs(); return reply(pick(['Here are your logs.', 'Logs are up.'])); }
   if (/^what am i (?:logging|timing|working on)(?: right now)?\??$/.test(t)) { const a = LOGS.data.active; return reply(a ? `You're on ${a.title}, since ${l12(a.start)}.` : 'Nothing is being timed right now.'); }
+  if (/^(?:how fast (?:are you|was that)|what(?:'?s| is) your (?:speed|response time)|speed (?:check|report)|how long did that take)\??$/.test(t)) return reply(perfReport());
   if (/^(stop listening|go to sleep|goodbye|that'?s all)$/.test(t)) { setWake(false); return reply('Very good, sir. I’ll be here.'); }
   if (/^(?:open|show|bring up|pull up)(?: me)? (?:my |the )?(?:to-?do(?: list)?|todo|tasks|planner|calendar|schedule)$/.test(t)) { openTodo(); return reply(pick(['Here’s your planner, sir.', 'Your To-Do, sir.', 'Opening your planner.'])); }
   if (/^(?:close|hide) (?:my |the )?(?:to-?do(?: list)?|todo|tasks|planner|calendar)$/.test(t)) { closeTodo(); return; }
@@ -1300,7 +1336,7 @@ function fillModelSelect(){
 async function warmUp(){
   if (!S.ollama || !S.model) return;
   event('loading ' + S.model + ' onto the GPU…');
-  await J.ollama.chat('warm', { model: S.model, messages: [{ role:'user', content:'hi' }], keep_alive:'30m', options:{ num_ctx: S.modelSize > 11e9 ? 8192 : 16384, num_predict: 1 } });
+  await J.ollama.chat('warm', { model: S.model, messages: [{ role:'user', content:'hi' }], keep_alive: S.gaming ? '2m' : '4h', options:{ num_ctx: S.modelSize > 11e9 ? 8192 : 16384, num_predict: 1 } });
   pollGpu();
 }
 
@@ -1714,7 +1750,7 @@ function attachVoice(){
   V.sensitivity = S.sens;
   V.log = m => event(m);
   V.onLevel = lv => { S.micLv = lv; };
-  V.onSpeakingChange = () => setState();
+  V.onSpeakingChange = on => { if (on && PERF.cur && PERF.cur.audio == null && PERF.cur.sent != null) PERF.cur.audio = performance.now(); setState(); };
   V.onCustomError = V.onCustomOk = () => syncVoiceUi();
   V.onVadState = st => { if (st === 'recording') $('#state').textContent = 'listening'; else setState(); };
   fillVoiceSelect();

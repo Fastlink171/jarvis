@@ -77,7 +77,9 @@ async function transcribe(samples) {
   // quiet microphones: bring the speech up to a healthy level so Whisper can read it
   let peak = 0; for (let i = 0; i < samples.length; i++) { const a = Math.abs(samples[i]); if (a > peak) peak = a; }
   if (peak > 0.003 && peak < 0.5) { const g = Math.min(12, 0.7 / peak); for (let i = 0; i < samples.length; i++) samples[i] *= g; }
+  const t0 = performance.now();
   const text = await ear('transcribe', { samples }, null, [samples.buffer]);
+  V.lastSttMs = Math.round(performance.now() - t0); V.lastSttFresh = true;
   return HALLU.test(text) ? '' : text;
 }
 

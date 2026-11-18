@@ -268,3 +268,6 @@ body.theme-scene{background:#1a2030}
 
 .logsLayer{background:#2a1f55}
 .logsLayer .todoBar i{background:#ffd38a;box-shadow:0 0 8px #ffd38a}
+
+/* the side panel's top row sits below Windows' minimize / maximize / close buttons */
+.drawer{padding-top:44px}
