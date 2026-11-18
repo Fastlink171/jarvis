@@ -64,6 +64,7 @@
       <span class="sep"></span>
       <button class="tb" id="tbTimer" data-tab="timers"><span class="ic">◷</span><b id="timerTxt">TIMER</b></button>
       <button class="tb tbTodo" id="tbTodo"><span class="ic">☑</span>TO-DO <b id="todoBadge"></b></button>
+      <button class="tb tbLogs" id="tbLogs"><span class="ic">◷</span>LOGS <b id="logsBadge"></b></button>
       <button class="tb" data-tab="memory"><span class="ic">✦</span>MEMORY</button>
       <button class="tb" data-tab="console"><span class="ic">›_</span>CONSOLE</button>
       <button class="tb" data-tab="log"><span class="ic">≡</span>LOG</button>
@@ -204,6 +205,10 @@
   <div class="todoBar"><span>J.A.R.V.I.S</span><i></i><span>TO-DO</span></div>
   <iframe id="todoFrame" title="To-Do"></iframe>
 </div>
+<div class="todoLayer logsLayer" id="logsLayer" hidden>
+  <div class="todoBar"><span>J.A.R.V.I.S</span><i></i><span>LOGS</span></div>
+  <iframe id="logsFrame" title="Logs"></iframe>
+</div>
 <div class="todoFx" id="todoFx" hidden><div class="ring"></div><div class="ring r2"></div><div class="scan"></div><div class="flash"></div></div>
 
 <div class="modal" id="modal">
@@ -259,6 +264,8 @@
       <div class="field" style="margin:8px 0 0"><label>TO-DO SCENE · <span id="tsceneState">NONE LOADED</span></label>
         <p class="note">A separate layered picture behind the To-Do planner, with its own look to match.</p>
         <div class="acts"><button class="btn" id="tscenePick">LOAD TO-DO SCENE…</button><button class="btn" id="tsceneClear">REMOVE</button></div></div>
+      <div class="field" style="margin:8px 0 0"><label>LOGS SCENE · <span id="lsceneState">NONE LOADED</span></label>
+        <div class="acts"><button class="btn" id="lscenePick">LOAD LOGS SCENE…</button><button class="btn" id="lsceneClear">REMOVE</button></div></div>
       <div class="field" style="margin:8px 0 0"><label>CAMERA MOTION <span id="sceneAmtV"></span></label><input type="range" id="sceneAmt" min="0" max="2" step="0.05"></div></div>
     <div class="field"><label class="chk"><input type="checkbox" id="petChk"> DESKTOP PET — A LITTLE JARVIS ON YOUR DESKTOP</label></div>
     <div class="field"><label>CUSTOM LOOK · YOUR OWN PICTURES (THEY STAY ON THIS PC)</label>

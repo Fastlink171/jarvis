@@ -265,3 +265,6 @@ body.theme-scene{background:#1a2030}
 .theme-scene .inrow input{border-radius:999px;background:rgba(10,14,28,.35)}
 .theme-scene .sq{border-radius:50%}
 .theme-scene .meter i{background:linear-gradient(90deg,#4fa8bd,var(--acc))}
+
+.logsLayer{background:#2a1f55}
+.logsLayer .todoBar i{background:#ffd38a;box-shadow:0 0 8px #ffd38a}

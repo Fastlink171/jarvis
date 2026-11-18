@@ -769,14 +769,15 @@ ipcMain.handle('appicon:clear', () => { if (prefs.appIcon) { try { fs.unlinkSync
    A .jarvisscene file is JSON: { W, H, layers:[{ x, y, w, h, z, depth, src:"data:image/…" }] }.
    It is unpacked into the custom folder; a plain picture also works (one layer, gentle camera move). */
 // two scenes: 'main' (the main screen) and 'todo' (the To-Do planner), each in its own set of files
-const scenePre = slot => slot === 'todo' ? 'tscene' : 'scene';
+const scenePre = slot => slot === 'todo' ? 'tscene' : slot === 'logs' ? 'lscene' : 'scene';
 const sceneFile = (slot = 'main') => path.join(customDir(), scenePre(slot) + '.json');
 function sceneUrl(slot = 'main') { try { const st = fs.statSync(sceneFile(slot)); return 'app://jarvis/custom/' + scenePre(slot) + '.json?v=' + Math.round(st.mtimeMs); } catch { return null; } }
 function clearScene(slot = 'main') { const re = new RegExp('^' + scenePre(slot) + '(-\\d+\\.\\w+|\\.json)$'); for (const n of fs.readdirSync(customDir())) if (re.test(n)) { try { fs.unlinkSync(path.join(customDir(), n)); } catch {} } }
-ipcMain.handle('scene:get', (e, slot) => sceneUrl(slot === 'todo' ? 'todo' : 'main'));
-ipcMain.handle('scene:clear', (e, slot) => { clearScene(slot === 'todo' ? 'todo' : 'main'); return { ok: true }; });
+const sceneSlot = s => (s === 'todo' || s === 'logs') ? s : 'main';
+ipcMain.handle('scene:get', (e, slot) => sceneUrl(sceneSlot(slot)));
+ipcMain.handle('scene:clear', (e, slot) => { clearScene(sceneSlot(slot)); return { ok: true }; });
 ipcMain.handle('scene:pick', async (e, slotArg) => {
-  const slot = slotArg === 'todo' ? 'todo' : 'main', pre = scenePre(slot);
+  const slot = sceneSlot(slotArg), pre = scenePre(slot);
   const r = await dialog.showOpenDialog(win, { title: 'Choose an animated scene or a picture', properties: ['openFile'],
     filters: [{ name: 'Scenes and pictures', extensions: ['jarvisscene', 'json', 'png', 'jpg', 'jpeg', 'webp'] }] });
   if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
@@ -956,6 +957,23 @@ ipcMain.handle('data:openFolder', () => shell.openPath(path.join(dataDir(), fs.e
 app.whenReady().then(() => { if (prefs.lastVersion && prefs.lastVersion !== app.getVersion()) snapshotData('after-' + app.getVersion()); if (prefs.lastVersion !== app.getVersion()) { prefs.lastVersion = app.getVersion(); savePrefs(); } });
 
 /* ------------------------------------------------------------------ To-Do: saved to %APPDATA%\\Jarvis\\todo.json */
+/* ------------------------------------------------------------------ Logs: saved to %APPDATA%\Jarvis\logs.json (daily backups, keep 7) */
+const logsFile = () => path.join(app.getPath('userData'), 'logs.json');
+ipcMain.handle('logs:load', () => {
+  try { return JSON.parse(fs.readFileSync(logsFile(), 'utf8')); } catch {}
+  const d = app.getPath('userData'); const baks = fs.readdirSync(d).filter(n => /^logs\.backup-.*\.json$/.test(n)).sort().reverse();
+  for (const n of baks) { try { return JSON.parse(fs.readFileSync(path.join(d, n), 'utf8')); } catch {} }
+  return null;
+});
+ipcMain.handle('logs:save', (e, data) => {
+  try {
+    const f = logsFile(), tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data)); fs.renameSync(tmp, f);
+    const d = app.getPath('userData'), bak = path.join(d, 'logs.backup-' + new Date().toISOString().slice(0, 10) + '.json');
+    if (!fs.existsSync(bak)) { fs.copyFileSync(f, bak); fs.readdirSync(d).filter(n => /^logs\.backup-.*\.json$/.test(n)).sort().slice(0, -7).forEach(n => { try { fs.unlinkSync(path.join(d, n)); } catch {} }); }
+    return true;
+  } catch { return false; }
+});
+
 const todoFile = () => path.join(app.getPath('userData'), 'todo.json');
 ipcMain.handle('todo:load', () => {
   try { return JSON.parse(fs.readFileSync(todoFile(), 'utf8')); } catch {}

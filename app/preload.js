@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   tts: { speak: inv('tts:speak'), abort: inv('tts:abort'), ping: inv('tts:ping'), start: inv('tts:start'), stop: inv('tts:stop'), pickDir: inv('tts:pickDir'), openLog: inv('tts:openLog') },
   custom: { get: inv('custom:get'), pick: inv('custom:pick'), clear: inv('custom:clear') },
   todo: { load: inv('todo:load'), save: inv('todo:save') },
+  logs: { load: inv('logs:load'), save: inv('logs:save') },
   kws: { start: inv('kws:start'), stop: inv('kws:stop'), feed: f => ipcRenderer.send('kws:feed', f), log: l => ipcRenderer.send('kws:log', l) },
   appIcon: { get: inv('appicon:get'), pick: inv('appicon:pick'), fromPet: inv('appicon:fromPet'), clear: inv('appicon:clear') },
   scene: { get: inv('scene:get'), pick: inv('scene:pick'), clear: inv('scene:clear') },   // pass 'todo' for the To-Do scene

@@ -348,6 +348,50 @@ const TODO = {
 };
 window.jarvisTodo = TODO;
 document.getElementById('todoFrame').src = 'todo.html';     // load the To-Do screen only once its store exists
+
+/* ---- Logs: planner + actual log, kept by the app (file on the PC); the Logs screen and voice commands share it */
+const LOGS = {
+  data: { plans: [], logs: [], pushTasks: [], active: null }, subs: new Set(), saveT: 0,
+  get(){ return JSON.parse(JSON.stringify(this.data)); },
+  set(d, fromHost){ this.data = d; clearTimeout(this.saveT); this.saveT = setTimeout(() => J.logs.save(this.data), 250); renderLogsBadge(); if (fromHost) for (const cb of [...this.subs]) { try { cb(this.get()); } catch { this.subs.delete(cb); } } },
+  subscribe(cb){ this.subs.add(cb); return () => this.subs.delete(cb); },
+  close(){ closeLogs(); }, name: () => aiName(), scene: () => J.scene.get('logs'), sceneAmt: () => S.sceneAmt
+};
+window.jarvisLogs = LOGS;
+J.logs.load().then(d => { if (d && typeof d === 'object') LOGS.data = { plans: d.plans || [], logs: d.logs || [], pushTasks: d.pushTasks || [], active: d.active || null }; renderLogsBadge(); document.getElementById('logsFrame').src = 'logs.html'; });
+const lp = n => String(n).padStart(2, '0');
+const lNow = () => { const d = new Date(); return lp(d.getHours()) + ':' + lp(d.getMinutes()); };
+const lToday = () => { const d = new Date(); return d.getFullYear() + '-' + lp(d.getMonth() + 1) + '-' + lp(d.getDate()); };
+const lId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const l12 = hm => { let [h, m] = hm.split(':').map(Number); const ap = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ':' + lp(m) + ' ' + ap; };
+function renderLogsBadge(){ const n = LOGS.data.logs.filter(l => l.date === lToday() && l.status === 'pending').length; const b = $('#logsBadge'); if (b) b.textContent = LOGS.data.active ? '●' : (n || ''); }
+// push = start a timer; pushing again finishes it into the log, already verified
+function logsFinish(){
+  const d = LOGS.get(), a = d.active; if (!a) return null;
+  const end = lNow(), p = d.plans.find(x => x.id === a.planId); if (p) p.end = end;
+  d.logs.push({ id: lId(), date: a.date, title: a.title, planId: a.planId, plannedStart: a.start, plannedEnd: end, start: a.start, end, status: 'verified', source: 'push', verifiedAt: Date.now() });
+  d.active = null; LOGS.set(d, true);
+  return { title: a.title, from: a.start, to: end, minutes: Math.max(1, Math.round((Date.now() - a.startedAt) / 60000)) };
+}
+function logsPush(title){
+  title = String(title || '').trim(); const d0 = LOGS.data;
+  if (!title) return d0.active ? { finished: logsFinish() } : { error: 'Say which task to push.' };
+  if (d0.active && d0.active.title.toLowerCase() === title.toLowerCase()) return { finished: logsFinish() };
+  const prev = d0.active ? logsFinish() : null;
+  const d = LOGS.get();
+  const lc = title.toLowerCase(), known = d.pushTasks.find(t => t.title.toLowerCase() === lc) || d.plans.find(p => p.date === lToday() && p.title.toLowerCase() === lc);
+  if (known) title = known.title;
+  if (!d.pushTasks.some(t => t.title.toLowerCase() === lc)) d.pushTasks.push({ id: lId(), title });
+  const start = lNow(), date = lToday(), p = { id: lId(), date, title, start, end: null, pushed: true };
+  d.plans.push(p); d.active = { title, planId: p.id, startedAt: Date.now(), start, date }; LOGS.set(d, true);
+  return { started: title, at: start, finished: prev };
+}
+function logsSummary(date){
+  const day = date || lToday(), L = LOGS.data.logs.filter(l => l.date === day);
+  const dm = (a, b) => { if (!a || !b) return 0; let x = (+b.slice(0, 2) * 60 + +b.slice(3)) - (+a.slice(0, 2) * 60 + +a.slice(3)); return x < 0 ? x + 1440 : x; };
+  const ver = L.filter(l => l.status === 'verified'), pend = L.filter(l => l.status === 'pending');
+  return { date: day, logged_minutes: ver.reduce((s, l) => s + dm(l.start, l.end), 0), verified: ver.map(l => `${l.title} ${l.start}-${l.end}`), pending: pend.map(l => `${l.title} (planned ${l.plannedStart}-${l.plannedEnd})`), skipped: L.filter(l => l.status === 'skipped').map(l => l.title), live: LOGS.data.active ? `${LOGS.data.active.title} since ${LOGS.data.active.start}` : null };
+}
 const todoNewId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const todoCmp = (a, b) => {
   const k = t => [t.date || '9999-12-31', t.time ? TC.minutes(t.time) : 1441, -TC.TAGS[t.tag].w, t.created || 0];
@@ -441,6 +485,45 @@ function closeTodo() {
   todoAnim && todoAnim.cancel();
   todoAnim = layer.animate([{ clipPath: `circle(${R}px at ${o.x}px ${o.y}px)`, opacity: 1 }, { clipPath: `circle(0px at ${o.x}px ${o.y}px)`, opacity: .6 }], { duration: 440, easing: 'cubic-bezier(.6,0,.85,.25)' });
   todoAnim.onfinish = () => { if (!S.todoOpen) layer.hidden = true; };
+}
+
+let logsAnim = null, logsOrigin = null;
+function openLogs(fromEl) {
+  if (S.logsOpen) return;
+  if (S.todoOpen) closeTodo();
+  S.logsOpen = true;
+  const layer = $('#logsLayer'), fx = $('#todoFx'), frame = $('#logsFrame');
+  const src = fromEl && fromEl.getBoundingClientRect ? fromEl : $('#tbLogs');
+  const r = src.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+  logsOrigin = { x, y };
+  const R = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y)) + 20;
+  layer.hidden = false;
+  try { frame.contentWindow.postMessage('logs:open', '*'); } catch {}
+  setTimeout(() => { try { frame.contentWindow.focus(); } catch {} }, 60);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  whoosh(true);
+  const ease = 'cubic-bezier(.76,0,.18,1)';
+  logsAnim && logsAnim.cancel();
+  logsAnim = layer.animate([{ clipPath: `circle(0px at ${x}px ${y}px)` }, { clipPath: `circle(${R}px at ${x}px ${y}px)` }], { duration: 760, easing: ease });
+  fx.hidden = false;
+  const [ring, ring2, scan, flash] = fx.children;
+  [ring, ring2].forEach((rg, i) => { rg.style.left = x + 'px'; rg.style.top = y + 'px';
+    rg.animate([{ width: '0px', height: '0px', opacity: 1 }, { width: R * 2 + 'px', height: R * 2 + 'px', opacity: i ? .0 : .9, offset: .85 }, { width: R * 2 + 'px', height: R * 2 + 'px', opacity: 0 }], { duration: 760 + i * 140, delay: i * 90, easing: ease, fill: 'both' }); });
+  flash.animate([{ opacity: 0 }, { opacity: 1, offset: .25 }, { opacity: 0 }], { duration: 700, easing: 'ease-out', fill: 'both' });
+  scan.animate([{ top: '-4px', opacity: 0 }, { opacity: 1, offset: .15 }, { opacity: 1, offset: .8 }, { top: innerHeight + 'px', opacity: 0 }], { duration: 620, delay: 420, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both' });
+  setTimeout(() => { fx.hidden = true; }, 1200);
+  event('opened Logs');
+}
+function closeLogs() {
+  if (!S.logsOpen) return;
+  S.logsOpen = false;
+  const layer = $('#logsLayer'), o = logsOrigin || { x: innerWidth / 2, y: 20 };
+  const R = Math.hypot(Math.max(o.x, innerWidth - o.x), Math.max(o.y, innerHeight - o.y)) + 20;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { layer.hidden = true; return; }
+  whoosh(false);
+  logsAnim && logsAnim.cancel();
+  logsAnim = layer.animate([{ clipPath: `circle(${R}px at ${o.x}px ${o.y}px)`, opacity: 1 }, { clipPath: `circle(0px at ${o.x}px ${o.y}px)`, opacity: .6 }], { duration: 440, easing: 'cubic-bezier(.6,0,.85,.25)' });
+  logsAnim.onfinish = () => { if (!S.logsOpen) layer.hidden = true; };
 }
 
 const NUMW = { a:1, an:1, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, fifteen:15, twenty:20, thirty:30, forty:40, 'forty-five':45, sixty:60, ninety:90, half:0.5 };
@@ -616,6 +699,9 @@ const TOOLS = [
   { name:'complete_task', description:'Mark a To-Do task as done.', params:{ text:{ type:'string', description:'the task (or part of its name)' } }, required:['text'] },
   { name:'reschedule_task', description:'Move a To-Do task to a new day/time.', params:{ text:{ type:'string', description:'the task (or part of its name)' }, when:{ type:'string', description:'new time in plain words, e.g. "monday 9am"' } }, required:['text', 'when'] },
   { name:'open_todo', description:'Show the To-Do planner (calendar and list) on screen.', params:{}, required:[] },
+  { name:'push_task', description:'Work log "push": start timing a task now, or finish the one running (finished pushes are logged with real start/end times, already verified). Pushing the running task again finishes it; pushing a different task finishes the current one first. Leave title empty to finish the current one.', params:{ title:{ type:'string', description:'task name, e.g. "Meme Rush TD"' } }, required:[] },
+  { name:'log_summary', description:'What the user logged on a day: verified entries with times, pending planned items, skipped ones, total minutes, and what is being timed right now.', params:{ date:{ type:'string', description:'YYYY-MM-DD, default today' } }, required:[] },
+  { name:'open_logs', description:'Show the Logs screen (planner log and actual log).', params:{}, required:[] },
   { name:'check_for_updates', description:'Check whether a newer version of this assistant app is available, and report the current version, the new version and what it changes.', params:{}, required:[] },
   { name:'install_update', description:'Restart the app to install an update that has finished downloading. Only when the user asks to update now.', params:{}, required:[] },
   { name:'set_timer', description:'Start a timer, or a reminder when a label is given. you will speak up when it ends.', params:{ minutes:{ type:'number' }, label:{ type:'string', description:'what to remind about (optional)' } }, required:['minutes'] },
@@ -705,6 +791,16 @@ async function runTool(name, args){
         toolLine('↻', `Moved: ${t.title} → ${todoWhen(nt)}`); return `Moved "${t.title}" to ${todoWhen(nt)}.`;
       }
       case 'open_todo': openTodo(); return 'The To-Do planner is open on screen.';
+      case 'push_task': {
+        const r = logsPush(args.title); countAction();
+        if (r.error) return r.error;
+        const parts = [];
+        if (r.finished) parts.push(`Logged ${r.finished.title} from ${l12(r.finished.from)} to ${l12(r.finished.to)} (${r.finished.minutes} min).`);
+        if (r.started) parts.push(`Started timing ${r.started} at ${l12(r.at)}.`);
+        toolLine('◷', parts.join(' ')); return parts.join(' ');
+      }
+      case 'log_summary': return JSON.stringify(logsSummary(args.date));
+      case 'open_logs': openLogs(); return 'The Logs screen is open.';
       case 'check_for_updates': { toolLine('⟳', 'Checking for updates'); return await updateReport(); }
       case 'install_update': {
         const st = await J.update.state();
@@ -805,7 +901,7 @@ function systemPrompt(){
   return `${isJarvis() ? 'You are J.A.R.V.I.S. ("Jarvis")' : 'You are ' + aiName()}, a personal AI assistant living on ${userName()}'s Windows PC (${S.info.computer || 'this PC'}, ${S.info.os || 'Windows'}). You run entirely on this computer.
 Current date and time: ${new Date().toLocaleString([], { weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'numeric', minute:'2-digit' })}.
 User's name: ${userName()}. Home folder: ${S.info.home || ''}. PowerShell current folder: ${S.cwd || S.info.home || ''}.
-${pcSnapshot()}${S.gaming ? `The user is playing ${S.gameApp} in fullscreen right now: do not bring other windows to the front unless they ask, keep replies very short.\n` : ''}${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${open.length ? 'To-Do (overdue, today, tomorrow): ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
+${pcSnapshot()}${S.gaming ? `The user is playing ${S.gameApp} in fullscreen right now: do not bring other windows to the front unless they ask, keep replies very short.\n` : ''}${S.weather ? `Weather now in ${S.weather.place}: ${S.weather.t}${S.weather.deg}, ${S.weather.desc}.\n` : ''}${LOGS.data.active ? 'Work log: the user is timing "' + LOGS.data.active.title + '" since ' + LOGS.data.active.start + ' (push_task finishes it).\n' : ''}${open.length ? 'To-Do (overdue, today, tomorrow): ' + open.join('; ') + '\n' : ''}${mem ? 'Things you remember about the user:\n' + mem + '\n' : ''}
 ${isJarvis() ? 'PERSONALITY: calm, capable, quietly witty, British, loyal. Address the user as "sir" occasionally, not every sentence.' : `PERSONALITY: warm, upbeat, capable and a little playful. Your name is ${aiName()}; you are this user\'s own assistant, not a character from anything else. Use their name now and then.`}
 
 HOW YOU WORK:
@@ -1074,6 +1170,10 @@ async function handle(text){
   }
   if (/^(?:are there |is there |any |check (?:for )?|look for |got any )(?:any )?(?:new )?(?:updates?|new versions?)(?: available| for you| out)?\??$|^(?:can|could) you (?:check for |get )?(?:any )?updates?\??$|^(?:do you|does the app) (?:have|need) (?:an |any )?updates?\??$/.test(t)) { addMsg('sys', 'Checking for updates…'); return updateReport().then(r => reply(r)); }
   if (/^(?:update|install the update|restart and update|update yourself)(?: now)?(?: please)?$/.test(t)) return runTool('install_update', {}).then(r => { if (!/Restarting|cancelled/.test(r)) reply(r); });
+  if (/^(?:push|push again|push it|i'?m done|done|finish(?: it)?|stop (?:logging|timing)|i finished)(?: now| please)?$/.test(t) && LOGS.data.active) { const r = logsFinish(); return reply(`Logged ${r.title}: ${l12(r.from)} to ${l12(r.to)}, ${r.minutes} minutes.`); }
+  if (!/^push (?:again|it|that)$/.test(t) && (m = text.replace(/[.!?]+$/, '').trim().match(/^(?:push|start (?:logging|timing|working on)|log start)\s+(.+?)(?: now| please)?$/i))) { const r = logsPush(m[1]); return reply(r.error || [r.finished && `Logged ${r.finished.title}, ${r.finished.minutes} minutes.`, r.started && `Timing ${r.started} from ${l12(r.at)}.`].filter(Boolean).join(' ')); }
+  if (/^(?:open|show|bring up)(?: me)? (?:my |the )?(?:logs?|planner log|work log)$/.test(t)) { openLogs(); return reply(pick(['Here are your logs.', 'Logs are up.'])); }
+  if (/^what am i (?:logging|timing|working on)(?: right now)?\??$/.test(t)) { const a = LOGS.data.active; return reply(a ? `You're on ${a.title}, since ${l12(a.start)}.` : 'Nothing is being timed right now.'); }
   if (/^(stop listening|go to sleep|goodbye|that'?s all)$/.test(t)) { setWake(false); return reply('Very good, sir. I’ll be here.'); }
   if (/^(?:open|show|bring up|pull up)(?: me)? (?:my |the )?(?:to-?do(?: list)?|todo|tasks|planner|calendar|schedule)$/.test(t)) { openTodo(); return reply(pick(['Here’s your planner, sir.', 'Your To-Do, sir.', 'Opening your planner.'])); }
   if (/^(?:close|hide) (?:my |the )?(?:to-?do(?: list)?|todo|tasks|planner|calendar)$/.test(t)) { closeTodo(); return; }
@@ -1388,7 +1488,7 @@ const PSCENE = {
     if (S.theme !== 'scene' || !this.url) return;
     this.raf = requestAnimationFrame(t => this.tick(t));
     // pause while hidden, gaming, or the To-Do covers the window; slow down when Jarvis isn't focused
-    if (document.hidden || !S.visible || S.gaming || (S.todoOpen && !todoAnim?.playState?.includes('running'))) { this.last = now; return; }
+    if (document.hidden || !S.visible || S.gaming || ((S.todoOpen && !todoAnim?.playState?.includes('running')) || (S.logsOpen && !logsAnim?.playState?.includes('running')))) { this.last = now; return; }
     if (!document.hasFocus() && now - this.last < 66) return;
     const dt = Math.min(.05, (now - this.last) / 1000); this.last = now;
     const k = 1 - Math.exp(-dt * 4.2), m = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : S.sceneAmt, t = now / 1000;
@@ -1422,7 +1522,7 @@ function drawWave(now){
 let lastFrame = 0;
 function frame(t){
   requestAnimationFrame(frame);
-  if (document.hidden || !S.visible || (S.todoOpen && !todoAnim?.playState?.includes('running'))) return;
+  if (document.hidden || !S.visible || ((S.todoOpen && !todoAnim?.playState?.includes('running')) || (S.logsOpen && !logsAnim?.playState?.includes('running')))) return;
   // fewer frames while the AI is thinking (it shares the graphics card) or when Jarvis isn't the active window
   let fps = Q.fps; if (S.thinking) fps = Math.min(fps, 20); if (!document.hasFocus()) fps = Math.min(fps, 10);
   if (t - lastFrame < 1000 / fps - 2) return;
@@ -1460,6 +1560,7 @@ function wire(){
     const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
     if (!typing && (e.key === 'm' || e.key === 'M')) { e.preventDefault(); talk(); }
     if (e.key === 'Escape' && S.todoOpen) { closeTodo(); return; }
+    if (e.key === 'Escape' && S.logsOpen) { closeLogs(); return; }
     if (e.key === 'Escape') { interrupt(); if (V) V.cancelListen(); S.listening = false; setState(); $('#modal').classList.remove('show'); $('#drawer').classList.remove('show'); }
   });
   J.on('hotkey:talk', () => talk());
@@ -1509,6 +1610,7 @@ function wire(){
   $('#memList').onclick = e => { const i = e.target.dataset.i; if (i != null) { S.memories.splice(+i, 1); saveMem(); } };
   $('#todoQuick').onkeydown = e => { if (e.key === 'Enter' && e.target.value.trim()) { const t = todoAdd(e.target.value.trim()); e.target.value = ''; event('To-Do: ' + t.title + ' — ' + todoWhen(t)); } };
   $('#tbTodo').onclick = e => openTodo(e.currentTarget);
+  $('#tbLogs').onclick = e => openLogs(e.currentTarget);
   $('#todoOpenBtn').onclick = e => openTodo(e.currentTarget);
   $('#todoGlance').onclick = e => { if (e.target.closest('.ti')) openTodo(e.target.closest('.ti')); };
   $('#remindChk').checked = S.remind; $('#remindChk').onchange = e => { S.remind = e.target.checked; store.set('remind', S.remind); };
@@ -1574,6 +1676,14 @@ function wire(){
     $('#tsceneState').textContent = 'LOADED · ' + r.layers + ' LAYERS'; event('To-Do scene loaded');
     try { $('#todoFrame').contentWindow.location.reload(); } catch {}
   };
+  J.scene.get('logs').then(u => $('#lsceneState').textContent = u ? 'LOADED' : 'NONE LOADED');
+  $('#lscenePick').onclick = async () => {
+    const r = await J.scene.pick('logs'); if (!r || r.canceled) return;
+    if (!r.ok) { $('#lsceneState').textContent = 'COULD NOT LOAD — ' + (r.error || '').toUpperCase(); return; }
+    $('#lsceneState').textContent = 'LOADED · ' + r.layers + ' LAYERS'; event('Logs scene loaded');
+    try { $('#logsFrame').contentWindow.location.reload(); } catch {}
+  };
+  $('#lsceneClear').onclick = async () => { await J.scene.clear('logs'); $('#lsceneState').textContent = 'NONE LOADED'; try { $('#logsFrame').contentWindow.location.reload(); } catch {} };
   $('#tsceneClear').onclick = async () => { await J.scene.clear('todo'); $('#tsceneState').textContent = 'NONE LOADED'; try { $('#todoFrame').contentWindow.location.reload(); } catch {} };
   $('#sceneClear').onclick = async () => { await J.scene.clear(); PSCENE.url = null; PSCENE.loaded = ''; $('#pStage').innerHTML = ''; $('#sceneState').textContent = 'NONE LOADED'; applyQuality(); };
   $('#themeSel').onchange = e => { S.theme = e.target.value; store.set('theme', S.theme); document.body.classList.remove('theme-neon'); applyQuality(); buildScene(); renderCounters(); J.pet && J.pet.theme(S.theme); event('theme: ' + S.theme); };

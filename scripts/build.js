@@ -39,6 +39,18 @@ console.log('renderer built');
 }
 console.log('to-do built');
 
+// Logs: planner + actual log (src/logs/page.html) -> app/renderer/logs.html and dist-web/logs.html
+{
+  const page = fs.readFileSync(R('src/logs/page.html'), 'utf8');
+  const head = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\' \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com; font-src \'self\' https://fonts.gstatic.com data:; img-src \'self\' data:">' +
+    '</head><body>';
+  fs.writeFileSync(R('app/renderer/logs.html'), head + page + '</body></html>');
+  fs.mkdirSync(R('dist-web'), { recursive: true });
+  fs.writeFileSync(R('dist-web/logs.html'), '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' + page);
+}
+console.log('logs built');
+
 // English Kokoro voices ship with Jarvis, so mixing voices works offline and instantly
 {
   const vs = R('node_modules/kokoro-js/voices'), vd = R('app/renderer/voices');
