@@ -1,10 +1,14 @@
-## M.I.K.U 1.24.0: Logs
+## M.I.K.U 1.25.0: faster, and you can see how fast
 
-- **New: Logs**, with the **LOGS** button at the top or by saying "open my logs". It has two linked logs:
-  - **Planner log:** what you mean to do. Paste or type your schedule, one line each, like `Meme Rush TD: 9:00 AM - 12:00 PM`.
-  - **Log:** what actually happened. Everything you plan shows up here as **Pending**. Confirm it with **Done as planned**, use **Adjust times** to enter when it really started and ended, or **Skip** it. You can do this from either log.
-- **Push tasks:** keep a list of things you work on. Press **Push** when you start and the timer runs. Press it again when you're done and it's logged with the real times, already verified. Pushing a different task finishes the current one first.
-- **By voice:** "Hey Miku, push Cx" starts one, and "push again" or "I'm done" finishes it. "What am I working on?" tells you what's being timed, and she can tell you what you logged today.
-- **Totals:** time logged per task for each day. You can browse earlier days too.
-- **Logs scene:** Settings → Theme → **Load Logs scene…** puts a layered moving picture behind the Logs.
-- Saved on your PC, with 7 days of backups.
+- **Speed readout:** the new ⚡ chip at the top shows how long the last reply took until Miku started talking. Hover over it for the breakdown:
+  - understanding your voice
+  - time to her first word
+  - reading your message
+  - writing speed
+  - when her voice started
+  - any time spent loading the brain
+
+  Ask "how fast are you?" and she'll tell you. Each reply's timings also go in the LOG tab.
+- **No more long reload waits:** her brain now stays loaded for 4 hours between questions instead of 30 minutes, so she doesn't have to reload it (which took 40 seconds on your PC). It still steps aside while you're in a fullscreen game.
+- **She starts talking sooner:** her first words are spoken as soon as there's a natural pause in the sentence, instead of waiting for the whole sentence.
+- **Side panel fix:** the ✕ on the Console / Timers / Memory / Log panel now sits below Windows' minimize, maximize and close buttons, so you can click it.
