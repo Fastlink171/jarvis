@@ -20,12 +20,12 @@ body{margin:0;color:var(--ink);font-family:var(--body);font-size:14px;background
 html.scene body{background:transparent}
 button,input,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
-.wrap{max-width:1500px;margin:0 auto;display:grid;gap:12px}
+.wrap{max-width:none;margin:0;display:grid;gap:12px}
 .glass{background:var(--glass);border:1px solid var(--line);border-radius:14px;-webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);box-shadow:0 10px 30px rgba(10,6,30,.35),inset 0 1px 0 rgba(255,255,255,.08)}
 
 /* header */
 .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-h1{margin:0;font-family:var(--display);font-weight:700;font-size:40px;line-height:1;letter-spacing:.01em;text-shadow:0 2px 18px rgba(255,200,230,.35)}
+h1{margin:0 6px 0 0;font-family:var(--display);font-weight:700;font-size:40px;line-height:1;letter-spacing:.01em;text-shadow:0 2px 18px rgba(255,200,230,.35)}
 .datenav{display:flex;align-items:center;gap:6px}
 .datenav .d{font-family:var(--display);font-size:20px;font-weight:600;min-width:170px;text-align:center}
 .ib{width:34px;height:34px;border-radius:10px;border:1px solid var(--line2);background:var(--glass2);display:grid;place-items:center}
@@ -62,7 +62,7 @@ h1{margin:0;font-family:var(--display);font-weight:700;font-size:40px;line-heigh
 .btn.ghost{background:var(--glass2);color:var(--ink);border:1px solid var(--line2);font-weight:600}
 .btn.sm{padding:5px 10px;font-size:12px;border-radius:8px}
 .ptasks{display:grid;gap:6px}
-.pt{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:center;padding:7px 8px 7px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+.pt{display:grid;grid-template-columns:1fr auto auto auto;gap:6px;align-items:center;padding:7px 8px 7px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
 .pt.on{border-color:rgba(255,143,184,.6);background:rgba(255,143,184,.10)}
 .pt .n{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt .x{border:0;background:none;color:var(--faint);font-size:14px;padding:2px 6px}
@@ -87,6 +87,14 @@ h1{margin:0;font-family:var(--display);font-weight:700;font-size:40px;line-heigh
 .it .tl{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis}
 .it .sub{font-size:11.5px;color:var(--faint);margin-top:2px}
 .it.skipped .tl{color:var(--skip);text-decoration:line-through;text-decoration-color:rgba(185,178,204,.5)}
+.tag{font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:3px 8px;border-radius:999px;font-weight:600;text-transform:uppercase;white-space:nowrap;cursor:pointer;border:1px solid transparent;background:none}
+.tag.important{color:#ffd38a;background:rgba(255,211,138,.13);border-color:rgba(255,211,138,.28)}
+.tag.casual{color:#9fd8ea;background:rgba(108,199,224,.12);border-color:rgba(108,199,224,.28)}
+.tag:hover{filter:brightness(1.25)}
+.it.cas .sub::after{content:' · casual, not counted';color:#9fd8ea}
+.yrow.cas{opacity:.62}.yrow.cas .hh{color:#9fd8ea;text-decoration:line-through;text-decoration-color:rgba(159,216,234,.5)}
+.chip.c b{color:#9fd8ea}
+.casnote{font-size:11.5px;color:#9fd8ea;margin-top:8px}
 .badge{font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:3px 8px;border-radius:999px;font-weight:600;text-transform:uppercase;white-space:nowrap}
 .badge.pending{color:var(--pend);background:var(--pend-bg)} .badge.verified{color:var(--ok);background:var(--ok-bg)} .badge.skipped{color:var(--skip);background:var(--skip-bg)} .badge.live{color:var(--live);background:rgba(255,143,184,.15)}
 .acts{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
@@ -104,6 +112,33 @@ h1{margin:0;font-family:var(--display);font-weight:700;font-size:40px;line-heigh
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);padding:10px 16px;border-radius:12px;background:rgba(28,20,58,.92);border:1px solid var(--line2);font-size:13px;z-index:9;display:flex;gap:12px;align-items:center}
 .toast button{border:0;background:none;color:var(--sun);font-weight:700}
 @media (max-width:900px){.main{grid-template-columns:minmax(0,1fr)}.it{grid-template-columns:minmax(0,1fr)}.acts{justify-content:flex-start}.sum{margin-left:0}}
+
+/* year view: one scrollable list of every confirmed log in the year, by month */
+.yearlist{max-height:calc(100vh - 170px);overflow:auto;padding-right:6px;scrollbar-width:thin;scrollbar-color:rgba(200,182,255,.45) transparent}
+.mhead{position:sticky;top:0;z-index:1;display:flex;justify-content:space-between;align-items:baseline;padding:10px 4px 8px;margin-top:6px;background:linear-gradient(180deg,rgba(28,20,58,.96) 70%,rgba(28,20,58,0));-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.mhead b{font-family:var(--display);font-size:20px}
+.mhead span{font-family:var(--mono);font-size:11px;color:var(--sun)}
+.yrow{display:grid;grid-template-columns:86px minmax(0,1fr) auto 190px 64px;gap:12px;align-items:center;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.035);margin-bottom:6px}
+.yrow .dt{font-family:var(--mono);font-size:12px;font-weight:600;color:#fff}
+.yrow .dt small{display:block;font-weight:400;color:var(--faint);font-size:10.5px}
+.yrow .tl{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.yrow .hrs{font-family:var(--mono);font-size:12px;color:var(--dim)}
+.yrow .hh{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ok);text-align:right}
+.yrow.push{border-color:rgba(255,143,184,.3)}
+.dlg{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(10,6,28,.55)}
+.dlg[hidden]{display:none}
+.dlg .box{width:min(460px,calc(100vw - 32px));padding:18px;border-radius:16px;background:rgba(32,23,66,.96);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.dlg h3{margin:0 0 4px;font-family:var(--display);font-size:24px}
+.dlg .opt{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:10px;border:1px solid var(--line);margin-top:8px;cursor:pointer}
+.dlg .opt.on{border-color:var(--lav);background:rgba(200,182,255,.1)}
+.dlg .opt input[type=radio]{margin-top:3px;accent-color:#c8b6ff}
+.dlg .opt b{display:block;font-size:13.5px}
+.dlg .opt .more{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.dlg .yrs label{display:inline-flex;gap:5px;align-items:center;font-size:12.5px;padding:4px 10px;border-radius:999px;border:1px solid var(--line2)}
+.dlg .yrs input{accent-color:#ffd38a}
+.dlg .foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:10px}
+.dlg .count{font-size:12px;color:var(--dim)}
+@media (max-width:900px){.yrow{grid-template-columns:70px minmax(0,1fr) auto 56px}.yrow .hrs{grid-column:2;font-size:11px}}
 
 /* intro (played when the app opens the Logs) */
 .intro .top,.intro .main>*{animation:rise .7s cubic-bezier(.2,.8,.2,1) both}
@@ -124,8 +159,10 @@ html.scene #lgScene{display:block;position:fixed;inset:0;z-index:-1;overflow:hid
   <header class="top">
     <h1>Logs</h1>
     <div class="datenav"><button class="ib" id="prev" aria-label="Previous day">‹</button><div class="d" id="dlabel"></div><button class="ib" id="next" aria-label="Next day">›</button><button class="pill" id="today">Today</button></div>
-    <div class="seg" role="tablist"><button id="tabPlan" class="on" role="tab">Planner</button><button id="tabLog" role="tab">Log</button></div>
+    <div class="seg" role="tablist" aria-label="Period"><button id="modeDay" class="on">Day</button><button id="modeYear">Year</button></div>
+    <div class="seg" role="tablist" id="planLogSeg"><button id="tabPlan" class="on" role="tab">Planner</button><button id="tabLog" role="tab">Log</button></div>
     <div class="sum" id="sum"></div>
+    <button class="pill" id="exportBtn" title="Export confirmed hours to an Excel workbook">⤓ Export to Excel</button>
     <span class="saved" id="saved"></span>
     <button class="pill close" id="closeBtn" title="Close (Esc)">Close ✕</button>
   </header>
@@ -149,6 +186,14 @@ html.scene #lgScene{display:block;position:fixed;inset:0;z-index:-1;overflow:hid
   </div>
 </div>
 
+<div class="dlg" id="dlg" hidden><div class="box">
+  <h3>Export to Excel</h3>
+  <p class="note">Confirmed, important hours only (casual time is left out). You get the full log with a total per task at the end, plus a Statistics tab with charts.</p>
+  <label class="opt" data-k="day"><input type="radio" name="ex" value="day" checked><div><b>This day</b><span class="note" id="exDayLbl"></span></div></label>
+  <label class="opt" data-k="range"><input type="radio" name="ex" value="range"><div><b>Days from … to …</b><div class="more"><input class="fld tfld" type="date" id="exFrom" style="width:150px"><input class="fld tfld" type="date" id="exTo" style="width:150px"></div></div></label>
+  <label class="opt" data-k="years"><input type="radio" name="ex" value="years"><div><b>Whole year(s)</b><div class="more yrs" id="exYears"></div></div></label>
+  <div class="foot"><span class="count" id="exCount"></span><span style="display:flex;gap:8px"><button class="btn ghost" id="exCancel">Cancel</button><button class="btn" id="exGo">Export</button></span></div>
+</div></div>
 <script>
 (() => {
 'use strict';
@@ -167,9 +212,22 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 
 /* ---------- storage: the app keeps the data (file on the PC); the stand-alone page uses this browser */
 const IN_FRAME = window.parent !== window;
-let HOST = null, data = { plans: [], logs: [], pushTasks: [], active: null };
+let HOST = null, data = { plans: [], logs: [], pushTasks: [], active: null, tags: {} };
 const findHost = () => { try { return window.parent.jarvisLogs || null; } catch { return null; } };
-function norm(d){ d = d && typeof d === 'object' ? d : {}; return { plans: d.plans || [], logs: d.logs || [], pushTasks: d.pushTasks || [], active: d.active || null }; }
+function norm(d){ d = d && typeof d === 'object' ? d : {}; return { plans: d.plans || [], logs: d.logs || [], pushTasks: d.pushTasks || [], active: d.active || null, tags: d.tags || {} }; }
+
+/* ---------- tags: important time is tallied, casual time (breaks, things that aren't work) is not.
+   An item's own tag wins; otherwise the tag last chosen for that name; otherwise a guess from the name. */
+const CASUAL_RX = /\b(break|lunch|dinner|breakfast|brunch|snack|eat(ing)?|nap|sleep|rest|chill(ing)?|relax(ing)?|shower|walk|gym|workout|youtube|tv|netflix|hang(ing)? ?out|free time|me time|commute)\b/i;
+const guessTag = t => CASUAL_RX.test(String(t || '')) ? 'casual' : 'important';
+const tagOf = x => (x && x.tag) || (x && data.tags[String(x.title || '').trim().toLowerCase()]) || guessTag(x && x.title);
+const counts = l => tagOf(l) !== 'casual';
+function setTag(items, title, tag){ items.filter(Boolean).forEach(x => { x.tag = tag; }); data.tags[String(title).trim().toLowerCase()] = tag; }
+function tagBtn(items, title, cur){
+  const b = el('button', 'tag ' + cur, cur); b.title = cur === 'casual' ? 'Casual: not added to your hours. Click to make it Important.' : 'Important: counted in your hours. Click to make it Casual.';
+  b.onclick = ev => { ev.stopPropagation(); const nx = cur === 'casual' ? 'important' : 'casual'; setTag(items, title, nx); save(); render(); toast(`${title} is now ${nx}` + (nx === 'casual' ? ' — not counted in your hours' : ' — counted in your hours')); };
+  return b;
+}
 function save(){
   if (HOST) { HOST.set(data); setSaved('Saved to ' + (HOST.name ? HOST.name() : 'the app')); }
   else { try { localStorage.setItem('logs.v1', JSON.stringify(data)); } catch {} setSaved('Saved in this browser'); }
@@ -177,13 +235,14 @@ function save(){
 function setSaved(t){ $('#saved').innerHTML = ''; $('#saved').append(t.replace(/\s\S+$/, ' '), el('b', null, t.split(' ').pop())); }
 
 /* ---------- the model: every plan has a linked log; push tasks write verified logs */
-let day = today(), tab = 'plan', openAdj = null;
+let day = today(), tab = 'plan', openAdj = null, mode = 'day', year = new Date().getFullYear();
 const plansOn = d => data.plans.filter(p => p.date === d).sort((a, b) => (mins(a.start) ?? 9999) - (mins(b.start) ?? 9999));
 const logsOn = d => data.logs.filter(l => l.date === d);
 const logFor = p => data.logs.find(l => l.planId === p.id);
-function addPlan(title, start, end, date = day){
+function addPlan(title, start, end, date = day, tag){
   const p = { id: uid(), date, title: title.trim(), start, end };
   const l = { id: uid(), date, title: p.title, planId: p.id, plannedStart: start, plannedEnd: end, start: null, end: null, status: 'pending', source: 'plan' };
+  if (tag) setTag([p, l], p.title, tag);
   data.plans.push(p); data.logs.push(l); return p;
 }
 function delPlan(p){
@@ -203,6 +262,7 @@ function push(title){
   if (a) finish();
   const start = nowHM(), d = today();
   const p = { id: uid(), date: d, title, start, end: null, pushed: true };
+  const known = data.pushTasks.find(t => t.title.toLowerCase() === title.toLowerCase()); if (known && known.tag) p.tag = known.tag;
   data.plans.push(p);
   data.active = { title, planId: p.id, startedAt: Date.now(), start, date: d };
   if (!data.pushTasks.some(t => t.title.toLowerCase() === title.toLowerCase())) data.pushTasks.push({ id: uid(), title });
@@ -213,7 +273,7 @@ function finish(){
   const a = data.active; if (!a) return null;
   const end = nowHM(), p = data.plans.find(x => x.id === a.planId);
   if (p) p.end = end;
-  data.logs.push({ id: uid(), date: a.date, title: a.title, planId: a.planId, plannedStart: a.start, plannedEnd: end, start: a.start, end, status: 'verified', source: 'push', verifiedAt: Date.now() });
+  data.logs.push({ id: uid(), date: a.date, title: a.title, planId: a.planId, plannedStart: a.start, plannedEnd: end, start: a.start, end, status: 'verified', source: 'push', verifiedAt: Date.now(), ...(p && p.tag ? { tag: p.tag } : {}) });
   data.active = null; save(); render();
   const m = Math.max(1, Math.round((Date.now() - a.startedAt) / 60000));
   toast(`Logged ${a.title}: ${fmt12(a.start)} – ${fmt12(end)} (${fmtDur(m)})`);
@@ -232,26 +292,32 @@ function to24(t, fallbackAP){
 }
 function parsePlan(text){
   return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(line => {
+    let tag = null; const tm = line.match(/[#(\[]\s*(casual|important)\s*[)\]]?/i);
+    if (tm) { tag = tm[1].toLowerCase(); line = line.replace(tm[0], ' ').replace(/\s{2,}/g, ' ').trim(); }
     const m = line.match(LINE); if (!m) return { line, bad: true };
     const apOf = s => (s.toLowerCase().replace(/\./g, '').match(/(am|pm)/) || [])[1];
     const a1 = apOf(m[2]), a2 = apOf(m[3]);
     const start = to24(m[2], a1 || a2), end = to24(m[3], a2 || a1);
     const title = m[1].replace(/[:\s–-]+$/, '').trim();
     if (!title || !start || !end) return { line, bad: true };
-    return { title, start, end };
+    return { title, start, end, tag };
   });
 }
 
 /* ---------- render */
 function render(){
+  $('#modeDay').classList.toggle('on', mode === 'day'); $('#modeYear').classList.toggle('on', mode === 'year');
+  $('#planLogSeg').style.display = mode === 'year' ? 'none' : '';
+  if (mode === 'year') return renderYear();
   const d = new Date(day + 'T12:00');
   $('#dlabel').textContent = day === today() ? 'Today · ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' }) : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   $('#tabPlan').classList.toggle('on', tab === 'plan'); $('#tabLog').classList.toggle('on', tab === 'log');
   const L = logsOn(day), pend = L.filter(l => l.status === 'pending').length, ver = L.filter(l => l.status === 'verified');
-  const planned = plansOn(day).reduce((a, p) => a + durMin(p.start, p.end), 0), logged = ver.reduce((a, l) => a + durMin(l.start, l.end), 0);
+  const planned = plansOn(day).filter(counts).reduce((a, p) => a + durMin(p.start, p.end), 0), logged = ver.filter(counts).reduce((a, l) => a + durMin(l.start, l.end), 0);
+  const casual = ver.filter(l => !counts(l)).reduce((a, l) => a + durMin(l.start, l.end), 0);
   const sum = $('#sum'); sum.innerHTML = '';
   const chip = (cls, k, v) => { const c = el('span', 'chip ' + cls); c.append(k + ' ', el('b', null, v)); sum.append(c); };
-  chip('', 'PLANNED', fmtDur(planned)); chip('v', 'LOGGED', fmtDur(logged)); chip('p', 'PENDING', String(pend));
+  chip('', 'PLANNED', fmtDur(planned)); chip('v', 'LOGGED', fmtDur(logged)); if (casual) chip('c', 'CASUAL', fmtDur(casual)); chip('p', 'PENDING', String(pend));
   renderPush(); renderTotals(); tab === 'plan' ? renderPlanner() : renderLog();
 }
 function renderPush(){
@@ -268,7 +334,7 @@ function renderPush(){
   if (!data.pushTasks.length) list.append(el('p', 'note', 'No push tasks yet. Add the things you work on, then push one when you start.'));
   data.pushTasks.forEach(task => {
     const on = a && a.title.toLowerCase() === task.title.toLowerCase();
-    const r = el('div', 'pt' + (on ? ' on' : '')); r.append(el('span', 'n', task.title));
+    const r = el('div', 'pt' + (on ? ' on' : '')); r.append(el('span', 'n', task.title), tagBtn([task], task.title, tagOf(task)));
     const b = el('button', on ? 'btn sm' : 'btn ghost sm', on ? 'Finish' : 'Push'); b.onclick = () => push(task.title);
     const x = el('button', 'x', '✕'); x.title = 'Remove from push tasks'; x.onclick = () => { data.pushTasks = data.pushTasks.filter(t => t !== task); save(); render(); };
     r.append(b, x); list.append(r);
@@ -277,11 +343,13 @@ function renderPush(){
 function tickClock(){ const c = $('#liveClk'), a = data.active; if (!c || !a) return; const s = Math.floor((Date.now() - a.startedAt) / 1000); c.textContent = Math.floor(s / 3600) + ':' + pad(Math.floor(s % 3600 / 60)) + ':' + pad(s % 60); }
 setInterval(tickClock, 1000);
 function renderTotals(){
-  const box = $('#totals'); box.innerHTML = '';
-  const by = {}; logsOn(day).filter(l => l.status === 'verified').forEach(l => { by[l.title] = (by[l.title] || 0) + durMin(l.start, l.end); });
+  const box = $('#totals'); box.innerHTML = ''; $('#totRange').textContent = mode === 'year' ? 'THIS YEAR' : 'THIS DAY';
+  const by = {}; let cas = 0; (mode === 'year' ? data.logs.filter(l => l.date.startsWith(year + '-')) : logsOn(day)).filter(l => l.status === 'verified').forEach(l => { if (!counts(l)) { cas += durMin(l.start, l.end); return; } by[l.title] = (by[l.title] || 0) + durMin(l.start, l.end); });
+  const casNote = () => { if (cas) box.append(el('p', 'casnote', '+ ' + fmtDur(cas) + ' casual — not counted')); };
   const rows = Object.entries(by).sort((a, b) => b[1] - a[1]), max = rows.length ? rows[0][1] : 1;
-  if (!rows.length) { box.append(el('p', 'note', 'Nothing verified yet for this day.')); return; }
+  if (!rows.length) { box.append(el('p', 'note', mode === 'year' ? 'No important hours verified yet this year.' : 'No important hours verified yet for this day.')); casNote(); return; }
   rows.forEach(([t, m]) => { const r = el('div', 'tot'); r.append(el('span', null, t), el('b', null, fmtDur(m))); const bar = el('div', 'bar'), i = el('i'); i.style.width = Math.max(4, m / max * 100) + '%'; bar.append(i); r.append(bar); box.append(r); });
+  casNote();
 }
 function statusOf(p){
   if (data.active && data.active.planId === p.id) return 'live';
@@ -289,7 +357,8 @@ function statusOf(p){
 }
 function itemRow(p, l, mode){
   const st = mode === 'plan' ? statusOf(p) : (data.active && l.planId && data.active.planId === l.planId ? 'live' : l.status);
-  const r = el('div', 'it ' + st);
+  const LL = l || (p && logFor(p)), cur = tagOf(LL || p);
+  const r = el('div', 'it ' + st + (cur === 'casual' ? ' cas' : ''));
   const tm = el('div', 'tm');
   if (mode === 'plan') { tm.append(el('b', null, fmt12(p.start)), document.createElement('br'), (p.end ? fmt12(p.end) : '…')); }
   else if (st === 'verified') { tm.append(el('b', null, fmt12(l.start)), document.createElement('br'), fmt12(l.end)); }
@@ -302,7 +371,7 @@ function itemRow(p, l, mode){
   else if (st === 'pending') sub.textContent = 'Planned · ' + fmtDur(durMin(p ? p.start : l.plannedStart, p ? p.end : l.plannedEnd)) + ' · waiting for you to confirm';
   else sub.textContent = 'Skipped';
   mid.append(sub);
-  const acts = el('div', 'acts'); acts.append(el('span', 'badge ' + st, st === 'live' ? 'Live' : st));
+  const acts = el('div', 'acts'); acts.append(tagBtn([p, LL], (p || LL).title, cur), el('span', 'badge ' + st, st === 'live' ? 'Live' : st));
   const L = l || (p && logFor(p));
   if (st === 'pending' && L) {
     const ok = el('button', 'btn sm', '✓ Done as planned'); ok.onclick = () => { verify(L); save(); render(); };
@@ -331,14 +400,14 @@ function renderPlanner(){
   const ta = el('textarea', 'paste'); ta.placeholder = 'Paste or type your plan, one per line:\nMeme Rush TD:   9:00 AM - 12:00 PM\nBreak:   1:00 PM - 2:00 PM\nCx   6:00 PM - 6:30 PM';
   const pv = el('div', 'preview');
   const row = el('div', 'row'); const add = el('button', 'btn', 'Add to planner'); add.disabled = true;
-  const hint = el('span', 'note', 'Each line goes into your Log as Pending.'); hint.style.alignSelf = 'center';
+  const hint = el('span', 'note', 'Each line goes into your Log as Pending. Add #casual or #important to a line to tag it; breaks are casual by default.'); hint.style.alignSelf = 'center';
   row.append(add, hint);
   ta.oninput = () => {
     const rows = parsePlan(ta.value); pv.innerHTML = '';
-    rows.forEach(r => pv.append(el('div', r.bad ? 'bad' : '', r.bad ? `✕ couldn't read: ${r.line}` : `✓ ${r.title} · ${fmt12(r.start)} – ${fmt12(r.end)}`)));
+    rows.forEach(r => pv.append(el('div', r.bad ? 'bad' : '', r.bad ? `✕ couldn't read: ${r.line}` : `✓ ${r.title} · ${fmt12(r.start)} – ${fmt12(r.end)} · ${r.tag || tagOf({ title: r.title })}`)));
     add.disabled = !rows.some(r => !r.bad);
   };
-  add.onclick = () => { const rows = parsePlan(ta.value).filter(r => !r.bad); rows.forEach(r => addPlan(r.title, r.start, r.end)); save(); ta.value = ''; render(); toast(`Added ${rows.length} to your plan — they're Pending in your Log`); };
+  add.onclick = () => { const rows = parsePlan(ta.value).filter(r => !r.bad); rows.forEach(r => addPlan(r.title, r.start, r.end, day, r.tag)); save(); ta.value = ''; render(); toast(`Added ${rows.length} to your plan — they're Pending in your Log`); };
   b.append(ta, pv, row);
   const items = el('div', 'items'); items.style.marginTop = '14px';
   const P = plansOn(day);
@@ -360,23 +429,101 @@ function renderLog(){
     const items = el('div', 'items'); list.forEach(l => items.append(itemRow(data.plans.find(p => p.id === l.planId) || null, l, 'log'))); b.append(items);
   });
 }
+/* ---------- year: every confirmed log in the year, newest month first, with dates */
+const MONL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MON3 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DOW3 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function renderYear(){
+  $('#dlabel').textContent = String(year);
+  const V = data.logs.filter(l => l.status === 'verified' && l.date.startsWith(year + '-'));
+  const VI = V.filter(counts), hrs = VI.reduce((a, l) => a + durMin(l.start, l.end), 0), daysW = new Set(VI.map(l => l.date)).size;
+  const casY = V.filter(l => !counts(l)).reduce((a, l) => a + durMin(l.start, l.end), 0);
+  const sum = $('#sum'); sum.innerHTML = '';
+  const chip = (cls, k, v) => { const c = el('span', 'chip ' + cls); c.append(k + ' ', el('b', null, v)); sum.append(c); };
+  chip('v', 'LOGGED', fmtDur(hrs)); if (casY) chip('c', 'CASUAL', fmtDur(casY)); chip('', 'DAYS', String(daysW)); chip('', 'ENTRIES', String(VI.length));
+  renderPush(); renderTotals();
+  const b = $('#board'); b.innerHTML = '';
+  const ch = el('div', 'ch'); ch.append(el('h2', null, 'Year log · ' + year), el('span', null, 'CONFIRMED · IMPORTANT HOURS COUNTED · NEWEST FIRST')); b.append(ch);
+  if (!V.length) { const e = el('div', 'empty'); e.append(el('b', null, 'No confirmed logs in ' + year), 'Confirm planned items or finish a push and they show up here, with their dates.'); b.append(e); return; }
+  const list = el('div', 'yearlist');
+  const sorted = V.slice().sort((x, y) => y.date.localeCompare(x.date) || (mins(y.start) - mins(x.start)));
+  let curM = null;
+  for (const l of sorted) {
+    const m = +l.date.slice(5, 7) - 1;
+    if (m !== curM) {
+      curM = m; const mh = el('div', 'mhead');
+      const mt = VI.filter(x => +x.date.slice(5, 7) - 1 === m).reduce((a, x) => a + durMin(x.start, x.end), 0);
+      mh.append(el('b', null, MONL[m]), el('span', null, fmtDur(mt) + ' logged')); list.append(mh);
+    }
+    const d = new Date(l.date + 'T12:00'), tg = tagOf(l), r = el('div', 'yrow' + (l.source === 'push' ? ' push' : '') + (tg === 'casual' ? ' cas' : ''));
+    const dt = el('div', 'dt', MON3[d.getMonth()] + ' ' + d.getDate()); dt.append(el('small', null, DOW3[d.getDay()]));
+    r.append(dt, el('div', 'tl', l.title), tagBtn([l, data.plans.find(p => p.id === l.planId)], l.title, tg), el('div', 'hrs', fmt12(l.start) + ' – ' + fmt12(l.end)), el('div', 'hh', fmtDur(durMin(l.start, l.end))));
+    r.title = 'Open this day'; r.style.cursor = 'pointer'; r.onclick = () => { mode = 'day'; tab = 'log'; day = l.date; render(); };
+    list.append(r);
+  }
+  b.append(list);
+}
+
+/* ---------- export to Excel (confirmed hours only) */
+function rowsFor(pick){
+  return data.logs.filter(l => l.status === 'verified' && counts(l) && l.start && l.end && pick(l.date)).map(l => ({ date: l.date, title: l.title, start: l.start, end: l.end }));
+}
+function exportChoice(){
+  const k = document.querySelector('input[name=ex]:checked').value;
+  const nice = s => { const d = new Date(s + 'T12:00'); return MON3[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear(); };
+  if (k === 'day') return { rows: rowsFor(d => d === day), label: nice(day), file: 'Logs ' + day };
+  if (k === 'range') { let a = $('#exFrom').value, z = $('#exTo').value; if (!a || !z) return { rows: [], label: '', file: '' }; if (a > z) [a, z] = [z, a]; return { rows: rowsFor(d => d >= a && d <= z), label: nice(a) + ' – ' + nice(z), file: 'Logs ' + a + ' to ' + z }; }
+  const ys = [...document.querySelectorAll('#exYears input:checked')].map(x => x.value).sort();
+  return { rows: rowsFor(d => ys.includes(d.slice(0, 4))), label: ys.length > 1 ? ys[0] + '–' + ys[ys.length - 1] : (ys[0] || ''), file: 'Logs ' + ys.join('-') };
+}
+function updateExportCount(){
+  document.querySelectorAll('.dlg .opt').forEach(o => o.classList.toggle('on', o.querySelector('input').checked));
+  const c = exportChoice(), h = c.rows.reduce((a, r) => a + durMin(r.start, r.end), 0);
+  $('#exCount').textContent = c.rows.length ? `${c.rows.length} entries · ${fmtDur(h)} confirmed` : 'No confirmed important hours in that period yet';
+  $('#exGo').disabled = !c.rows.length;
+}
+function openExport(){
+  const years = [...new Set(data.logs.filter(l => l.status === 'verified').map(l => l.date.slice(0, 4)).concat(String(year)))].sort().reverse();
+  const yb = $('#exYears'); yb.innerHTML = '';
+  years.forEach(y => { const lb = el('label'); const cb = el('input'); cb.type = 'checkbox'; cb.value = y; cb.checked = y === String(year); cb.onchange = () => { document.querySelector('input[value=years]').checked = true; updateExportCount(); }; lb.append(cb, y); yb.append(lb); });
+  const d = new Date(day + 'T12:00'); $('#exDayLbl').textContent = ' — ' + d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  $('#exFrom').value = $('#exFrom').value || addDays(day, -6); $('#exTo').value = $('#exTo').value || day;
+  document.querySelector(mode === 'year' ? 'input[value=years]' : 'input[value=day]').checked = true;
+  $('#dlg').hidden = false; updateExportCount();
+}
+document.querySelectorAll('input[name=ex]').forEach(r => r.onchange = updateExportCount);
+['exFrom', 'exTo'].forEach(id => $('#' + id).addEventListener('change', () => { document.querySelector('input[value=range]').checked = true; updateExportCount(); }));
+$('#exCancel').onclick = () => { $('#dlg').hidden = true; };
+$('#exGo').onclick = async () => {
+  const c = exportChoice(); if (!c.rows.length) return;
+  if (!HOST || !HOST.exportXlsx) { toast('Exporting works inside the app.'); return; }
+  $('#exGo').disabled = true; $('#exGo').textContent = 'Exporting…';
+  const r = await HOST.exportXlsx({ rows: c.rows, label: c.label, file: c.file }).catch(e => ({ ok: false, error: e.message }));
+  $('#exGo').disabled = false; $('#exGo').textContent = 'Export';
+  if (r && r.ok) { $('#dlg').hidden = true; toast('Saved ' + r.name, () => HOST.showFile && HOST.showFile(r.path), 'Show file'); }
+  else if (r && !r.canceled) toast('Could not export: ' + (r.error || 'unknown problem'));
+};
+
 let toastT = 0;
-function toast(msg, undo){
+function toast(msg, undo, undoLabel){
   document.querySelectorAll('.toast').forEach(t => t.remove());
   const t = el('div', 'toast'); t.append(el('span', null, msg));
-  if (undo) { const u = el('button', null, 'Undo'); u.onclick = () => { undo(); t.remove(); }; t.append(u); }
+  if (undo) { const u = el('button', null, undoLabel || 'Undo'); u.onclick = () => { undo(); t.remove(); }; t.append(u); }
   document.body.append(t); clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 4000);
 }
 
 /* ---------- wiring */
-$('#prev').onclick = () => { day = addDays(day, -1); render(); };
-$('#next').onclick = () => { day = addDays(day, 1); render(); };
-$('#today').onclick = () => { day = today(); render(); };
+$('#prev').onclick = () => { if (mode === 'year') year--; else day = addDays(day, -1); render(); };
+$('#next').onclick = () => { if (mode === 'year') year++; else day = addDays(day, 1); render(); };
+$('#today').onclick = () => { day = today(); year = new Date().getFullYear(); render(); };
+$('#modeDay').onclick = () => { mode = 'day'; render(); };
+$('#modeYear').onclick = () => { mode = 'year'; year = +day.slice(0, 4); render(); };
+$('#exportBtn').onclick = openExport;
 $('#tabPlan').onclick = () => { tab = 'plan'; render(); };
 $('#tabLog').onclick = () => { tab = 'log'; render(); };
 $('#ptForm').onsubmit = e => { e.preventDefault(); const v = $('#ptIn').value.trim(); if (!v) return; if (!data.pushTasks.some(t => t.title.toLowerCase() === v.toLowerCase())) data.pushTasks.push({ id: uid(), title: v }); $('#ptIn').value = ''; save(); render(); };
 $('#closeBtn').onclick = () => HOST && HOST.close();
-addEventListener('keydown', e => { if (e.key === 'Escape' && HOST) HOST.close(); });
+addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('#dlg').hidden) { $('#dlg').hidden = true; return; } if (HOST) HOST.close(); } });
 window.addEventListener('message', e => {
   if (e.source !== window.parent || e.data !== 'logs:open') return;
   day = today(); render();

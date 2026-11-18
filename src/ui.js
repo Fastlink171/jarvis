@@ -355,10 +355,11 @@ const LOGS = {
   get(){ return JSON.parse(JSON.stringify(this.data)); },
   set(d, fromHost){ this.data = d; clearTimeout(this.saveT); this.saveT = setTimeout(() => J.logs.save(this.data), 250); renderLogsBadge(); if (fromHost) for (const cb of [...this.subs]) { try { cb(this.get()); } catch { this.subs.delete(cb); } } },
   subscribe(cb){ this.subs.add(cb); return () => this.subs.delete(cb); },
-  close(){ closeLogs(); }, name: () => aiName(), scene: () => J.scene.get('logs'), sceneAmt: () => S.sceneAmt
+  close(){ closeLogs(); }, name: () => aiName(), scene: () => J.scene.get('logs'), sceneAmt: () => S.sceneAmt,
+  exportXlsx: req => J.logs.export(req), showFile: p => J.logs.showFile(p)
 };
 window.jarvisLogs = LOGS;
-J.logs.load().then(d => { if (d && typeof d === 'object') LOGS.data = { plans: d.plans || [], logs: d.logs || [], pushTasks: d.pushTasks || [], active: d.active || null }; renderLogsBadge(); document.getElementById('logsFrame').src = 'logs.html'; });
+J.logs.load().then(d => { if (d && typeof d === 'object') LOGS.data = { plans: d.plans || [], logs: d.logs || [], pushTasks: d.pushTasks || [], active: d.active || null, tags: d.tags || {} }; renderLogsBadge(); document.getElementById('logsFrame').src = 'logs.html'; });
 const lp = n => String(n).padStart(2, '0');
 const lNow = () => { const d = new Date(); return lp(d.getHours()) + ':' + lp(d.getMinutes()); };
 const lToday = () => { const d = new Date(); return d.getFullYear() + '-' + lp(d.getMonth() + 1) + '-' + lp(d.getDate()); };
@@ -369,7 +370,7 @@ function renderLogsBadge(){ const n = LOGS.data.logs.filter(l => l.date === lTod
 function logsFinish(){
   const d = LOGS.get(), a = d.active; if (!a) return null;
   const end = lNow(), p = d.plans.find(x => x.id === a.planId); if (p) p.end = end;
-  d.logs.push({ id: lId(), date: a.date, title: a.title, planId: a.planId, plannedStart: a.start, plannedEnd: end, start: a.start, end, status: 'verified', source: 'push', verifiedAt: Date.now() });
+  d.logs.push({ id: lId(), date: a.date, title: a.title, planId: a.planId, plannedStart: a.start, plannedEnd: end, start: a.start, end, status: 'verified', source: 'push', verifiedAt: Date.now(), ...(p && p.tag ? { tag: p.tag } : {}) });
   d.active = null; LOGS.set(d, true);
   return { title: a.title, from: a.start, to: end, minutes: Math.max(1, Math.round((Date.now() - a.startedAt) / 60000)) };
 }
@@ -382,15 +383,18 @@ function logsPush(title){
   const lc = title.toLowerCase(), known = d.pushTasks.find(t => t.title.toLowerCase() === lc) || d.plans.find(p => p.date === lToday() && p.title.toLowerCase() === lc);
   if (known) title = known.title;
   if (!d.pushTasks.some(t => t.title.toLowerCase() === lc)) d.pushTasks.push({ id: lId(), title });
-  const start = lNow(), date = lToday(), p = { id: lId(), date, title, start, end: null, pushed: true };
+  const start = lNow(), date = lToday(), p = { id: lId(), date, title, start, end: null, pushed: true }; if (known && known.tag) p.tag = known.tag;
   d.plans.push(p); d.active = { title, planId: p.id, startedAt: Date.now(), start, date }; LOGS.set(d, true);
   return { started: title, at: start, finished: prev };
 }
+// keep in step with CASUAL_RX in src/logs/page.html
+const LOGS_CASUAL_RX = /\b(break|lunch|dinner|breakfast|brunch|snack|eat(ing)?|nap|sleep|rest|chill(ing)?|relax(ing)?|shower|walk|gym|workout|youtube|tv|netflix|hang(ing)? ?out|free time|me time|commute)\b/i;
 function logsSummary(date){
   const day = date || lToday(), L = LOGS.data.logs.filter(l => l.date === day);
   const dm = (a, b) => { if (!a || !b) return 0; let x = (+b.slice(0, 2) * 60 + +b.slice(3)) - (+a.slice(0, 2) * 60 + +a.slice(3)); return x < 0 ? x + 1440 : x; };
+  const tags = LOGS.data.tags || {}, cas = l => (l.tag || tags[String(l.title).trim().toLowerCase()] || (LOGS_CASUAL_RX.test(l.title) ? 'casual' : 'important')) === 'casual';
   const ver = L.filter(l => l.status === 'verified'), pend = L.filter(l => l.status === 'pending');
-  return { date: day, logged_minutes: ver.reduce((s, l) => s + dm(l.start, l.end), 0), verified: ver.map(l => `${l.title} ${l.start}-${l.end}`), pending: pend.map(l => `${l.title} (planned ${l.plannedStart}-${l.plannedEnd})`), skipped: L.filter(l => l.status === 'skipped').map(l => l.title), live: LOGS.data.active ? `${LOGS.data.active.title} since ${LOGS.data.active.start}` : null };
+  return { date: day, logged_minutes: ver.filter(l => !cas(l)).reduce((s, l) => s + dm(l.start, l.end), 0), casual_minutes_not_counted: ver.filter(cas).reduce((s, l) => s + dm(l.start, l.end), 0), verified: ver.map(l => `${l.title} ${l.start}-${l.end}${cas(l) ? ' (casual)' : ''}`), pending: pend.map(l => `${l.title} (planned ${l.plannedStart}-${l.plannedEnd})`), skipped: L.filter(l => l.status === 'skipped').map(l => l.title), live: LOGS.data.active ? `${LOGS.data.active.title} since ${LOGS.data.active.start}` : null };
 }
 const todoNewId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const todoCmp = (a, b) => {

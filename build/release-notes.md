@@ -1,14 +1,14 @@
-## M.I.K.U 1.25.0: faster, and you can see how fast
+## M.I.K.U 1.26.0: Year view, Excel export, and Important / Casual tags
 
-- **Speed readout:** the new ⚡ chip at the top shows how long the last reply took until Miku started talking. Hover over it for the breakdown:
-  - understanding your voice
-  - time to her first word
-  - reading your message
-  - writing speed
-  - when her voice started
-  - any time spent loading the brain
+- **Day | Year switch:** next to Planner | Log. Year shows every confirmed log for the year in one scrollable list, newest first and grouped by month with month totals. Each row shows the date (e.g. "Nov 18 · Wed"), the task, the times and the hours. Click a row to jump to that day. ‹ › change the year.
+- **Export to Excel:** the new button exports this day, a range of days, or one or more whole years. The workbook has:
+  - a **Log** sheet listing every entry with date, day, start, end and hours, plus a **total per task** at the end;
+  - a **Statistics** sheet with total hours, days worked, average per day, longest session and top task, and bar, column and trend charts.
 
-  Ask "how fast are you?" and she'll tell you. Each reply's timings also go in the LOG tab.
-- **No more long reload waits:** her brain now stays loaded for 4 hours between questions instead of 30 minutes, so she doesn't have to reload it (which took 40 seconds on your PC). It still steps aside while you're in a fullscreen game.
-- **She starts talking sooner:** her first words are spoken as soon as there's a natural pause in the sentence, instead of waiting for the whole sentence.
-- **Side panel fix:** the ✕ on the Console / Timers / Memory / Log panel now sits below Windows' minimize, maximize and close buttons, so you can click it.
+  Only confirmed hours are exported.
+- **Important and Casual tags:** every plan, log and push task has a tag; click it to switch.
+  - Important time is counted.
+  - Casual time (breaks, things that aren't work) is shown but **not counted** in your hours, totals or exports.
+
+  Breaks, lunch, naps and similar are Casual by default. The tag you pick for a name is remembered for next time. When pasting a plan, add `#casual` or `#important` to a line to set it.
+- The "Logs" title now sits in the top-left corner instead of being cut off.

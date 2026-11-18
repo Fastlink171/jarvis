@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "1.25.0",
+  "version": "1.26.0",
   "description": "M.I.K.U. local AI assistant",
   "main": "app/main.js",
   "scripts": {
@@ -73,6 +73,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.11",
+    "jszip": "^3.10.1",
     "sherpa-onnx": "^2.0.1"
   },
   "repository": {

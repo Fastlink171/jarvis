@@ -966,6 +966,24 @@ ipcMain.handle('logs:load', () => {
   for (const n of baks) { try { return JSON.parse(fs.readFileSync(path.join(d, n), 'utf8')); } catch {} }
   return null;
 });
+// Excel export of confirmed hours: the renderer sends the rows, the user picks where it goes
+ipcMain.handle('logs:export', async (e, req) => {
+  try {
+    const rows = (Array.isArray(req && req.rows) ? req.rows : []).filter(r => r && /^\d{4}-\d\d-\d\d$/.test(r.date) && /^\d\d?:\d\d$/.test(r.start) && /^\d\d?:\d\d$/.test(r.end))
+      .map(r => ({ date: r.date, title: String(r.title || 'Untitled').slice(0, 200), start: r.start, end: r.end }));
+    if (!rows.length) return { ok: false, error: 'nothing confirmed in that period' };
+    const label = String(req.label || '').slice(0, 80);
+    const base = (String(req.file || 'Logs').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Logs').slice(0, 80);
+    const def = path.join(app.getPath('documents'), 'MIKU ' + base + '.xlsx');
+    const target = process.env.JARVIS_EXPORT_TO || (await dialog.showSaveDialog(win, { title: 'Save the Excel export', defaultPath: def, filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }] })).filePath;
+    if (!target) return { ok: false, canceled: true };
+    const { buildLogsWorkbook } = require('./xlsx-export.js');
+    const buf = await buildLogsWorkbook({ rows, label });
+    fs.writeFileSync(target, buf);
+    return { ok: true, path: target, name: path.basename(target) };
+  } catch (err) { return { ok: false, error: String(err && err.message || err) }; }
+});
+ipcMain.handle('logs:showFile', (e, p) => { if (typeof p === 'string' && /\.xlsx$/i.test(p) && fs.existsSync(p)) shell.showItemInFolder(p); });
 ipcMain.handle('logs:save', (e, data) => {
   try {
     const f = logsFile(), tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(data)); fs.renameSync(tmp, f);
